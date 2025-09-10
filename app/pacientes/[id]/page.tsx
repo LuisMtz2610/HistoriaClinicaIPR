@@ -1,4 +1,3 @@
-// app/pacientes/[id]/page.tsx
 'use client'
 
 import * as React from 'react'
@@ -11,6 +10,7 @@ import EditPatientModal from '@/components/EditPatientModal'
 import PatientPrintableActions from '@/app/(clinic)/_components/PatientPrintableActions'
 import MobileCaptureKit from '@/components/kit/MobileCaptureKit'
 import { fmtDateDDMMYYYY } from '@/lib/date'
+import PatientFilesGrid from "@/app/(clinic)/_components/PatientFilesGrid";
 
 /** === Constantes === */
 const FILES_BUCKET = 'clinical-files'
@@ -177,7 +177,7 @@ export default function PatientView() {
             Solicitud Lab
           </Link>
           <Link
-            href={`/consents/new?patientId=${p.id}`}
+            href={`/consents/new?patient_id=${p.id}`}
             className="px-3 py-2 rounded-xl text-white"
             style={{ backgroundColor: '#14b8a6' }}
           >
@@ -202,7 +202,7 @@ export default function PatientView() {
             <div><span className="font-medium">Nombre:</span> {fullName}</div>
             <div><span className="font-medium">Género:</span> {p.sex ?? p.gender ?? '—'}</div>
             <div><span className="font-medium">Nacimiento:</span> {fmtDateDDMMYYYY(p.birth_date)}</div>
-      {(p.birth_city || p.birth_state) && (
+            {(p.birth_city || p.birth_state) && (
               <div><span className="font-medium">Lugar de nacimiento:</span> {p.birth_city || '—'}, {p.birth_state || '—'}</div>
             )}
             {p.schooling && <div><span className="font-medium">Escolaridad:</span> {p.schooling}</div>}
@@ -320,108 +320,76 @@ export default function PatientView() {
 
       {/* ===== Modal de edición ===== */}
       {showEdit && (
-  <EditPatientModal
-    patient={p}
-    onClose={() => setShowEdit(false)}
-    onSaved={() => {
-      setShowEdit(false)
-      patientQ.mutate()
-    }}
-  />
-)}
+        <EditPatientModal
+          patient={p}
+          onClose={() => setShowEdit(false)}
+          onSaved={() => {
+            setShowEdit(false)
+            patientQ.mutate()
+          }}
+        />
+      )}
     </main>
   )
 }
 
-/** ===== Listado de archivos con thumbnails y botón Abrir (signed URL) ===== */
-function FilesList({ patientId }: { patientId: string }) {
-  const { data, error, isLoading, mutate } = useSWR(['files', patientId], () => fetchFiles(patientId))
-
-  if (isLoading) return <div className="text-sm">Cargando archivos…</div>
-  if (error) return <div className="text-sm text-red-600">Error al cargar archivos</div>
-  const files = data || []
-  if (files.length === 0) return <div className="text-sm text-gray-500">Sin archivos</div>
-
-  return (
-    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {files.map((f) => (
-        <FileCard key={f.id} file={f} onDeleted={() => mutate()} />
-      ))}
-    </div>
-  )
+/** ===== Listado de archivos usando PatientFilesGrid ===== */
+type GridFileItem = {
+  id?: string
+  path?: string
+  name?: string
+  url: string
+  created_at?: string
+  type?: string
 }
 
-function FileCard({ file, onDeleted }: { file: FileRow; onDeleted?: () => void }) {
-  const [url, setUrl] = React.useState<string | null>(null)
-  const [removing, setRemoving] = React.useState(false)
+function FilesList({ patientId }: { patientId: string }) {
+  const { data: rows, error, isLoading, mutate } = useSWR(
+    ['files', patientId],
+    () => fetchFiles(patientId)
+  )
+
+  const [items, setItems] = React.useState<GridFileItem[]>([])
 
   React.useEffect(() => {
     let alive = true
     ;(async () => {
-      const { data, error } = await supabase.storage
-        .from(FILES_BUCKET)
-        .createSignedUrl(file.path, 3600)
-      if (!alive) return
-      if (!error && data?.signedUrl) setUrl(data.signedUrl)
+      if (!rows) return
+      const signed = await Promise.all(
+        rows.map(async (r) => {
+          const { data } = await supabase.storage
+            .from(FILES_BUCKET)
+            .createSignedUrl(r.path, 3600)
+          return {
+            id: r.id,
+            path: r.path,
+            name: r.meta?.filename ?? r.path.split('/').pop() ?? r.path,
+            url: data?.signedUrl ?? '',
+            created_at: r.created_at,
+            type: r.kind ?? 'file',
+          } as GridFileItem
+        })
+      )
+      if (alive) setItems(signed)
     })()
-    return () => { alive = false }
-  }, [file.path])
+    return () => {
+      alive = false
+    }
+  }, [rows])
 
-  async function handleDelete() {
+  async function handleDelete(f: GridFileItem) {
+    if (!f?.id || !f?.path) return
     if (!confirm('¿Eliminar archivo?')) return
-    setRemoving(true)
     // 1) Borra metadata
-    const { error: dbErr } = await supabase.from('files').delete().eq('id', file.id)
-    if (dbErr) { alert(dbErr.message); setRemoving(false); return }
+    await supabase.from('files').delete().eq('id', f.id)
     // 2) Borra del storage
-    const { error: stErr } = await supabase.storage.from(FILES_BUCKET).remove([file.path])
-    if (stErr) { alert(stErr.message); setRemoving(false); return }
-
-    setRemoving(false)
-    onDeleted?.()
+    await supabase.storage.from(FILES_BUCKET).remove([f.path])
+    mutate()
   }
 
-  return (
-    <div className="rounded-xl border p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium">{file.kind || 'archivo'}</div>
-          <div className="text-xs text-gray-500 mt-0.5">
-            {new Date(file.created_at).toLocaleString()}
-          </div>
-          <div className="text-xs text-gray-500 truncate mt-0.5">{file.path}</div>
-        </div>
-        <button
-          onClick={handleDelete}
-          disabled={removing}
-          className="text-red-600 text-sm disabled:opacity-60"
-          title="Eliminar"
-        >
-          {removing ? 'Eliminando…' : 'Eliminar'}
-        </button>
-      </div>
+  if (isLoading) return <div className="text-sm">Cargando archivos…</div>
+  if (error) return <div className="text-sm text-red-600">Error al cargar archivos</div>
+  if (!rows || rows.length === 0) return <div className="text-sm text-gray-500">Sin archivos</div>
 
-      {url && (
-        <div className="mt-2">
-          {(file.kind === 'photo' || file.kind === 'xray') ? (
-            <a href={url} target="_blank" className="block">
-              <img
-                src={url}
-                alt={file.path}
-                className="rounded-lg border border-gray-200 max-h-56 object-contain w-full bg-gray-50"
-              />
-            </a>
-          ) : (
-            <a
-              href={url}
-              target="_blank"
-              className="inline-block px-3 py-2 rounded-xl bg-gray-800 text-white text-sm"
-            >
-              Abrir
-            </a>
-          )}
-        </div>
-      )}
-    </div>
-  )
+  return <PatientFilesGrid files={items} onDelete={handleDelete} />
 }
