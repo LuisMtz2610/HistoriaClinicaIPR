@@ -12,8 +12,8 @@ type Row = {
   created_at: string
   total: number | null
   patient: PatientLite
-  total_paid?: number
-  balance?: number
+  total_paid: number
+  balance: number
 }
 
 export default function QuotesIndex() {
@@ -25,71 +25,50 @@ export default function QuotesIndex() {
     (async () => {
       setLoading(true)
       setErr(null)
-      // 1) Trae presupuestos con el paciente
-      const { data: quotes, error } = await supabase
+
+      // Intento 1: traer pagos anidados usando la relación (quotes -> quote_payments)
+      const { data, error } = await supabase
         .from('quotes')
-        .select('id, created_at, total, patients(first_name,last_name)')
+        .select(`
+          id,
+          created_at,
+          total,
+          patients(first_name,last_name),
+          quote_payments(amount)
+        `)
         .order('created_at', { ascending: false })
         .limit(200)
 
-      if (error) { setErr(error.message); setLoading(false); return }
-
-      const mapped: Row[] = (quotes as any)?.map((q: any) => ({
-        id: q.id,
-        created_at: q.created_at,
-        total: q.total,
-        patient: q.patients ?? null,
-      })) ?? []
-
-      // 2) Sumar pagos por presupuesto. Intentamos primero con 'quote_payments' (nombre más común),
-      //    y si no existe, caemos a 'payments' (como versión anterior).
-      let paidByQuote: Record<string, number> = {}
-      const ids = mapped.map(m => m.id)
-
-      async function sumFrom(table: string) {
-        const { data, error } = await supabase
-          .from(table)
-          .select('quote_id, amount, monto')
-          .in('quote_id', ids)
-        if (!error && data) {
-          for (const p of data as any[]) {
-            const qid = p.quote_id
-            const amt = Number(p.amount ?? p.monto ?? 0) || 0
-            paidByQuote[qid] = (paidByQuote[qid] || 0) + amt
-          }
-          return true
-        }
-        return false
+      if (error) {
+        setErr(error.message)
+        setLoading(false)
+        return
       }
 
-      try {
-        if (ids.length > 0) {
-          const ok = await sumFrom('quote_payments')
-          if (!ok) {
-            await sumFrom('payments')
-          }
-        }
-      } catch (_) {
-        // Si ambas tablas no existen o no hay relación, ignoramos y mostramos saldo = total
-      }
+      // Si RLS/relaciones no devuelven la colección, nos aseguramos de que al menos sea array
+      const mapped: Row[] = (data as any)?.map((q: any) => {
+        const payments: Array<{ amount: number }> = Array.isArray(q.quote_payments)
+          ? q.quote_payments
+          : []
 
-      const withMoney = mapped.map(m => {
-        const paid = Number(paidByQuote[m.id] || 0)
-        const total = Number(m.total || 0)
+        const paid = payments.reduce((sum, p) => sum + Number(p?.amount || 0), 0)
+        const total = Number(q.total || 0)
         return {
-          ...m,
+          id: q.id,
+          created_at: q.created_at,
+          total,
+          patient: q.patients ?? null,
           total_paid: paid,
           balance: Math.max(0, total - paid),
         }
-      })
+      }) ?? []
 
-      setRows(withMoney)
+      setRows(mapped)
       setLoading(false)
     })()
   }, [])
 
-  const fmt = (n: number | null | undefined) =>
-    `$${Number(n || 0).toFixed(2)}`
+  const fmt = (n: number | null | undefined) => `$${Number(n || 0).toFixed(2)}`
 
   return (
     <main className="container mx-auto px-4 py-6">
