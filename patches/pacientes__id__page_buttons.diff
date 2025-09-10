@@ -1,0 +1,22 @@
+*** app/pacientes/[id]/page.tsx.orig
+--- app/pacientes/[id]/page.tsx
+***************
+*** 5,10 ****
+--- 5,11 ----
+  import { supabase } from '@/lib/supabase'
+  import UploadPatientFile from '@/components/UploadPatientFile'
+  import EditPatientModal from '@/components/EditPatientModal'
++ import PatientPrintableActions from '@/app/(clinic)/_components/PatientPrintableActions'
+***************
+*** 60,65 ****
+--- 61,70 ----
+      <div className="flex items-center gap-3">
+        <h1 className="page-title">Paciente: {p.last_name}, {p.first_name}</h1>
+        <button onClick={() => setShowEdit(true)} className="btn">Editar</button>
+        <Link href={`/pacientes/${p.id}/historia`} className="btn ml-auto">Historia clínica</Link>
+      </div>
++ 
++     {/* Acciones rápidas de imprimibles */}
++     <div className="mt-2">
++       <PatientPrintableActions patientId={p.id} />
++     </div>

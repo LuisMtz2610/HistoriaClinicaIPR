@@ -1,0 +1,12 @@
+{
+  "paths": {
+    "layout": "app/layout.tsx",
+    "quotes_page": "app/quotes/[id]/page.tsx",
+    "quotes_print": "app/quotes/[id]/print/page.tsx",
+    "paciente_page": "app/pacientes/[id]/page.tsx",
+    "cita_page": "app/citas/[id]/page.tsx",
+    "consents_list": "app/consents/page.tsx",
+    "consent_detail": "app/consents/[id]/page.tsx",
+    "consent_print": "app/consents/[id]/print/page.tsx"
+  }
+}

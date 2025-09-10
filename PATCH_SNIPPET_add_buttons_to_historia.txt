@@ -1,0 +1,9 @@
+En `app/pacientes/[id]/page.tsx` agrega:
+
+1) Import arriba:
+import PatientPrintableActions from "@/app/(clinic)/_components/PatientPrintableActions";
+
+2) Justo debajo del encabezado del paciente:
+<div className="mt-2">
+  <PatientPrintableActions patientId={p.id} />
+</div>

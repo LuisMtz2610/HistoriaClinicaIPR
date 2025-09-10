@@ -1,0 +1,7 @@
+Busca el bloque de botones del encabezado (donde están: Editar, Historia clínica, Nueva Receta, Solicitud RX, Solicitud Lab, Consentimiento).
+Añade este botón junto a los demás:
+
+  <Link href={`/quotes/new?patientId=${p.id}`} className="px-3 py-2 rounded-xl bg-emerald-600 text-white">Nuevo presupuesto</Link>
+
+Asegúrate de tener:
+  import Link from 'next/link'
