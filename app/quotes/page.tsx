@@ -41,26 +41,36 @@ export default function QuotesIndex() {
         patient: q.patients ?? null,
       })) ?? []
 
-      // 2) Sumar pagos por presupuesto (si existe la tabla payments)
+      // 2) Sumar pagos por presupuesto. Intentamos primero con 'quote_payments' (nombre más común),
+      //    y si no existe, caemos a 'payments' (como versión anterior).
       let paidByQuote: Record<string, number> = {}
-      try {
-        const ids = mapped.map(m => m.id)
-        if (ids.length > 0) {
-          const { data: pays, error: payErr } = await supabase
-            .from('payments') // <-- si tu tabla se llama distinto, cámbiala aquí
-            .select('quote_id, amount, monto')
-            .in('quote_id', ids)
+      const ids = mapped.map(m => m.id)
 
-          if (!payErr && pays) {
-            for (const p of pays as any[]) {
-              const qid = p.quote_id
-              const amt = Number(p.amount ?? p.monto ?? 0) || 0
-              paidByQuote[qid] = (paidByQuote[qid] || 0) + amt
-            }
+      async function sumFrom(table: string) {
+        const { data, error } = await supabase
+          .from(table)
+          .select('quote_id, amount, monto')
+          .in('quote_id', ids)
+        if (!error && data) {
+          for (const p of data as any[]) {
+            const qid = p.quote_id
+            const amt = Number(p.amount ?? p.monto ?? 0) || 0
+            paidByQuote[qid] = (paidByQuote[qid] || 0) + amt
+          }
+          return true
+        }
+        return false
+      }
+
+      try {
+        if (ids.length > 0) {
+          const ok = await sumFrom('quote_payments')
+          if (!ok) {
+            await sumFrom('payments')
           }
         }
       } catch (_) {
-        // Si no existe la tabla payments, ignoramos y mostramos saldo = total
+        // Si ambas tablas no existen o no hay relación, ignoramos y mostramos saldo = total
       }
 
       const withMoney = mapped.map(m => {
