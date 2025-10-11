@@ -1,7 +1,7 @@
-// iOS/PWA robust (anchor-based): whatsapp:// primary on iOS/PWA, fallback to wa.me then api.whatsapp.com
+// iOS/PWA robust + props restored (showCloudButton, cloudEndpoint)
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 
 function onlyDigits(s: string = '') { return (s || '').replace(/\D+/g, '') }
 function normalizeMxPhone(phone: string = '') {
@@ -27,6 +27,16 @@ function isStandalone() {
   return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator as any).standalone
 }
 
+async function sendViaCloud({ endpoint = '/api/whatsapp/send', payload }: { endpoint?: string; payload: any }) {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(`Cloud send failed: ${res.status}`)
+  return res.json().catch(() => ({}))
+}
+
 type Props = {
   patientName: string
   patientPhone: string
@@ -35,6 +45,8 @@ type Props = {
   className?: string
   messageOverride?: string
   debug?: boolean
+  showCloudButton?: boolean
+  cloudEndpoint?: string
 }
 
 export default function AppointmentWhatsAppReminder({
@@ -45,11 +57,15 @@ export default function AppointmentWhatsAppReminder({
   className,
   messageOverride,
   debug = false,
+  showCloudButton = true,
+  cloudEndpoint = '/api/whatsapp/send',
 }: Props) {
   const [primaryHref, setPrimaryHref] = useState<string>('')
   const [fallback1, setFallback1] = useState<string>('')
   const [fallback2, setFallback2] = useState<string>('')
   const [ready, setReady] = useState(false)
+  const [pending, start] = useTransition()
+  const [status, setStatus] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -61,7 +77,6 @@ export default function AppointmentWhatsAppReminder({
       const direct = waDirectLink(intl, text)
       const web = waWebLink(intl, text)
       const api = waApiLink(intl, text)
-
       const preferDirect = isIOS() || isStandalone()
 
       setPrimaryHref(preferDirect ? direct : web)
@@ -73,26 +88,14 @@ export default function AppointmentWhatsAppReminder({
     }
   }, [patientName, patientPhone, whenISO, clinicName, messageOverride])
 
-  // Anchor-based open + JS fallbacks
   const onAnchorClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (!ready) { e.preventDefault(); return }
-    // If primary is direct scheme, schedule fallbacks in case scheme doesn't resolve
     const isDirect = primaryHref.startsWith('whatsapp://')
     if (isDirect) {
-      // allow default navigation to whatsapp:// (do NOT preventDefault)
-      // schedule fallback to wa.me after 800ms if nothing happened
-      const t1 = setTimeout(() => {
-        try { window.location.href = fallback1 } catch {}
-      }, 800)
-      // schedule second fallback to api.whatsapp.com after 1800ms
-      const t2 = setTimeout(() => {
-        try { window.location.href = fallback2 } catch {}
-      }, 1800)
-      // Clean up timers if page is hidden (navigation succeeded)
+      const t1 = setTimeout(() => { try { window.location.href = fallback1 } catch {} }, 800)
+      const t2 = setTimeout(() => { try { window.location.href = fallback2 } catch {} }, 1800)
       const onHidden = () => { clearTimeout(t1); clearTimeout(t2); document.removeEventListener('visibilitychange', onHidden) }
       document.addEventListener('visibilitychange', onHidden)
-    } else {
-      // Primary is web link; no need to prevent default or schedule
     }
   }
 
@@ -108,11 +111,33 @@ export default function AppointmentWhatsAppReminder({
       >
         Recordatorio WhatsApp
       </a>
-      {debug && ready && (
-        <div className="mt-2 text-[10px] text-gray-500 break-all">
-          primary: {primaryHref}<br/>
-          fallback1: {fallback1}<br/>
-          fallback2: {fallback2}
+      {showCloudButton && (
+        <button
+          className="ml-2 px-3 py-2 rounded-xl bg-gray-800 text-white disabled:opacity-60"
+          disabled={pending}
+          onClick={() => {
+            start(async () => {
+              try {
+                const payload = { to: patientPhone, whenISO, patientName, clinicName, kind: 'appointment-reminder' }
+                const r = await sendViaCloud({ endpoint: cloudEndpoint, payload })
+                setStatus(r?.status ? String(r.status) : 'enviado')
+              } catch (e: any) {
+                setStatus('error: ' + (e?.message || ''))
+              }
+            })
+          }}
+        >
+          {pending ? 'Enviando…' : 'Enviar (Cloud)'}
+        </button>
+      )}
+      { (debug || status) && (
+        <div className="text-[10px] text-gray-500 mt-1 break-all">
+          {status ? `Estado: ${status}` : null}
+          {debug ? (<>
+            <div>primary: {primaryHref}</div>
+            <div>fallback1: {fallback1}</div>
+            <div>fallback2: {fallback2}</div>
+          </>) : null}
         </div>
       )}
     </div>
