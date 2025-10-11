@@ -1,0 +1,11 @@
+export function onlyDigits(s: string = '') {
+  return (s || '').replace(/\D+/g, '')
+}
+
+export function normalizeMxPhone(phone: string = '') {
+  // Normaliza a 10 dígitos y devuelve con +52 para WhatsApp
+  const d = onlyDigits(phone)
+  // quita 52 inicial si ya viene con lada
+  const cleaned = d.startsWith('52') && d.length > 10 ? d.slice(-10) : d.slice(-10)
+  return { national10: cleaned, intl: `52${cleaned}` }
+}
