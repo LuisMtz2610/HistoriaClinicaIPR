@@ -1,0 +1,11 @@
+type BuildLinkArgs = {
+  phone: string
+  text: string
+}
+
+export function buildWaLink({ phone, text }: BuildLinkArgs) {
+  // Si viene ya con +52 y/o espacios, limpiar por si acaso:
+  const digits = (phone || '').replace(/\D+/g, '')
+  const url = `https://wa.me/${digits}?text=${encodeURIComponent(text)}`
+  return url
+}
