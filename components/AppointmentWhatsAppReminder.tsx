@@ -1,15 +1,22 @@
+// Self-contained version: no external imports for WA utils
 'use client'
 
 import { useEffect, useState, useTransition } from 'react'
-import { normalizeMxPhone } from '@/components/wa/phone-utils'
-import { buildWaLink } from '@/components/wa/build-wa-link'
 
-type CloudArgs = {
-  endpoint?: string // default: /api/whatsapp/send
-  payload: any
+function onlyDigits(s: string = '') {
+  return (s || '').replace(/\D+/g, '')
+}
+function normalizeMxPhone(phone: string = '') {
+  const d = onlyDigits(phone)
+  const last10 = d.slice(-10)
+  return { national10: last10, intl: `52${last10}` }
+}
+function buildWaLink({ phone, text }: { phone: string; text: string }) {
+  const digits = (phone || '').replace(/\D+/g, '')
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`
 }
 
-async function sendViaCloud({ endpoint = '/api/whatsapp/send', payload }: CloudArgs) {
+async function sendViaCloud({ endpoint = '/api/whatsapp/send', payload }: { endpoint?: string; payload: any }) {
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -30,10 +37,6 @@ type Props = {
   cloudEndpoint?: string
 }
 
-/**
- * Botón iOS‑friendly que abre WhatsApp con <a href> (modo link)
- * y opcionalmente permite enviar por API Cloud (modo cloud).
- */
 export default function AppointmentWhatsAppReminder({
   patientName,
   patientPhone,
