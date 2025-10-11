@@ -1,98 +1,77 @@
 'use client'
 
-import * as React from 'react'
-import useSWR from 'swr'
 import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import PrintActionsCell from '@/components/PrintActionsCell'
 
 type PatientLite = { first_name: string; last_name: string } | null
+
 type Row = {
   id: string
-  patient_id: string
   created_at: string
-  diagnosis: string | null
-  folio: string | null
-  doctor_name: string | null
-  doctor_license: string | null
-  patients?: { first_name: string; last_name: string } | { first_name: string; last_name: string }[] | null
+  patient: PatientLite
 }
 
-const fetcher = async (): Promise<Row[]> => {
-  const { data, error } = await supabase
-    .from('prescriptions')
-    .select('id, patient_id, created_at, diagnosis, folio, doctor_name, doctor_license, patients(first_name,last_name)')
-    .order('created_at', { ascending: true })
-  if (error) throw error
-  return (data || []) as Row[]
-}
+export default function PrescriptionsIndex() {
+  const [rows, setRows] = useState<Row[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
 
-// Folio visible con prefijo y padding
-const fmt = (n: number, prefix = '') => `${prefix}${String(n).padStart(4, '0')}`
-
-// Normaliza patients a objeto (si viene arreglo, toma el primero)
-function normalizePatient(p: Row['patients']): PatientLite {
-  if (!p) return null
-  if (Array.isArray(p)) return p[0] ?? null
-  return p
-}
-
-export default function PrescriptionsPage() {
-  const q = useSWR('prescriptions', fetcher)
-
-  if (q.error) return <div className="text-red-600">Error: {String((q.error as any).message || q.error)}</div>
-  if (!q.data) return <div>Cargando…</div>
-
-  const rows = q.data ?? []
-  const total = rows.length
+  useEffect(() => {
+    (async () => {
+      setLoading(true)
+      setErr(null)
+      const { data, error } = await supabase
+        .from('prescriptions')
+        .select('id, created_at, patients(first_name,last_name)')
+        .order('created_at', { ascending: false })
+        .limit(200)
+      if (error) { setErr(error.message); setLoading(false); return }
+      const mapped: Row[] = (data as any)?.map((r: any) => ({
+        id: r.id, created_at: r.created_at, patient: r.patients ?? null
+      })) ?? []
+      setRows(mapped)
+      setLoading(false)
+    })()
+  }, [])
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <h1 className="page-title">Recetas</h1>
-        <Link href="/prescriptions/new" className="btn ml-auto">Nueva</Link>
+    <main className="container mx-auto px-4 py-6">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">Recetas</h1>
       </div>
 
-      <div className="card p-4 overflow-x-auto">
-        <table className="w-full border text-sm">
-          <thead>
-            <tr className="bg-neutral-100">
-              <th className="border px-2 py-1">Folio</th>
-              <th className="border px-2 py-1">Fecha</th>
-              <th className="border px-2 py-1 text-left">Paciente</th>
-              <th className="border px-2 py-1 text-left">Diagnóstico</th>
-              <th className="border px-2 py-1">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => {
-              const p = normalizePatient(r.patients)
-              const folioVisible = fmt(total - i, 'REC-')
-              return (
-                <tr key={r.id}>
-                  <td className="border px-2 py-1">{folioVisible}</td>
-                  <td className="border px-2 py-1">{new Date(r.created_at).toLocaleDateString()}</td>
-                  <td className="border px-2 py-1">
-                    <Link href={`/pacientes/${r.patient_id}`} className="text-blue-600 hover:underline">
-                      {p ? `${p.last_name}, ${p.first_name}` : '—'}
-                    </Link>
-                  </td>
-                  <td className="border px-2 py-1">{r.diagnosis || '—'}</td>
-                  <td className="border px-2 py-1 text-center">
-                    <Link href={`/prescriptions/${r.id}`} className="text-emerald-700 hover:underline">Abrir</Link>
+      {err && <div className="p-3 rounded-md bg-red-50 text-red-700">{err}</div>}
+      {loading ? (
+        <div>Cargando…</div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border bg-white">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b bg-gray-50">
+                <th className="p-2">Paciente</th>
+                <th className="p-2">Fecha</th>
+                <th className="p-2">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr><td className="p-3 text-gray-500" colSpan={3}>Sin registros</td></tr>
+              )}
+              {rows.map(r => (
+                <tr key={r.id} className="border-b">
+                  <td className="p-2">{r.patient ? `${r.patient.last_name}, ${r.patient.first_name}` : '—'}</td>
+                  <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
+                  <td className="p-2 whitespace-nowrap">
+                    <PrintActionsCell module="prescriptions" id={r.id} />
                   </td>
                 </tr>
-              )
-            })}
-            {rows.length === 0 && (
-              <tr>
-                <td className="border px-2 py-6 text-center text-neutral-600" colSpan={5}>
-                  No hay recetas.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </main>
   )
 }
