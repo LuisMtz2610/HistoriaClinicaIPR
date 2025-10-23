@@ -145,11 +145,9 @@ export default function CitasPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Citas</h1>
-        <Link href="/citas/new" className="px-3 py-2 rounded bg-emerald-700 text-white">
-          Nueva cita
-        </Link>
+      <div className="flex items-center gap-3">
+        <h1 className="page-title">Citas</h1>
+        <Link href="/citas/new" className="btn ml-auto">Nueva</Link>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">

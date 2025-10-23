@@ -1,15 +1,15 @@
 // Status mapping (DB -> UI)
 export const statusEs: Record<string, string> = {
-  scheduled: "programada",
-  completed: "completada",
-  cancelled: "cancelada",
+  scheduled: "Programada",
+  completed: "Completada",
+  cancelled: "Cancelada",
 };
 
 export function toStatusDb(es: string): "scheduled" | "completed" | "cancelled" {
   const map: Record<string, any> = {
-    programada: "scheduled",
-    completada: "completed",
-    cancelada: "cancelled",
+    Programada: "scheduled",
+    Completada: "completed",
+    Cancelada: "cancelled",
   };
   return map[es] ?? "scheduled";
 }

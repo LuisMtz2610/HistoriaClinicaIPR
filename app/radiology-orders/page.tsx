@@ -8,6 +8,7 @@ import PrintActionsCell from '@/components/PrintActionsCell'
 type PatientLite = { first_name: string; last_name: string } | null
 
 type Row = {
+  patient_id?: string | null;
   id: string
   created_at: string
   patient: PatientLite
@@ -24,12 +25,12 @@ export default function RadiologyOrdersIndex() {
       setErr(null)
       const { data, error } = await supabase
         .from('radiology_orders')
-        .select('id, created_at, patients(first_name,last_name)')
+        .select('id, created_at, patient_id, patients(first_name,last_name)')
         .order('created_at', { ascending: false })
         .limit(200)
       if (error) { setErr(error.message); setLoading(false); return }
       const mapped: Row[] = (data as any)?.map((r: any) => ({
-        id: r.id, created_at: r.created_at, patient: r.patients ?? null
+        id: r.id, created_at: r.created_at, patient: r.patients ?? null, patient_id: (r as any).patient_id ?? null
       })) ?? []
       setRows(mapped)
       setLoading(false)
@@ -38,8 +39,9 @@ export default function RadiologyOrdersIndex() {
 
   return (
     <main className="container mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Solicitudes de RX</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="page-title">Solicitudes RX</h1>
+        <Link href="/radiology-orders/new" className="btn ml-auto">Nueva</Link>
       </div>
 
       {err && <div className="p-3 rounded-md bg-red-50 text-red-700">{err}</div>}
@@ -61,7 +63,11 @@ export default function RadiologyOrdersIndex() {
               )}
               {rows.map(r => (
                 <tr key={r.id} className="border-b">
-                  <td className="p-2">{r.patient ? `${r.patient.last_name}, ${r.patient.first_name}` : '—'}</td>
+                  <td className="p-2">{r.patient && r.patient_id ? (
+                <Link href={`/pacientes/${r.patient_id}`} className="text-blue-600 hover:underline">
+                  {`${r.patient.last_name}, ${r.patient.first_name}`}
+                </Link>
+              ) : (r.patient ? `${r.patient.last_name}, ${r.patient.first_name}` : '—')}</td>
                   <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
                   <td className="p-2 whitespace-nowrap">
                     <PrintActionsCell module="radiology-orders" id={r.id} />

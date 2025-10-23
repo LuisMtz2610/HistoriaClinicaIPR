@@ -1,84 +1,128 @@
-import Link from "next/link";
-import PrintHeader from "../../../_components/PrintHeader";
-import PrintFrame from "../../../_components/PrintFrame";
+'use client';
 
-export default async function Page({ params }: { params: { id: string } }) {
-  const pid = params.id;
-  const { createClient } = await import("@supabase/supabase-js");
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+import React, { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
-  const [presc, rx, lab, cons] = await Promise.all([
-    supabase.from("prescriptions").select("id, created_at, folio").eq("patient_id", pid).order("created_at", { ascending: false }),
-    supabase.from("radiology_orders").select("id, created_at, folio").eq("patient_id", pid).order("created_at", { ascending: false }),
-    supabase.from("lab_orders").select("id, created_at, folio").eq("patient_id", pid).order("created_at", { ascending: false }),
-    supabase.from("consent_prints").select("id, created_at, folio").eq("patient_id", pid).order("created_at", { ascending: false }),
-  ]);
+type Item = {
+  id: string;
+  created_at: string; // fecha normalizada para mostrar
+};
+
+const tableToRoute: Record<string, string> = {
+  lab_orders: 'lab-orders',
+  radiology_orders: 'radiology-orders',
+  prescriptions: 'prescriptions',
+  consents: 'consents',
+  quotes: 'quotes',
+};
+
+const SECTIONS = [
+  { key: 'prescriptions',    title: 'Receta',                 route: 'prescriptions' },
+  { key: 'radiology_orders', title: 'Solicitud RX',           route: 'radiology-orders' },
+  { key: 'lab_orders',       title: 'Solicitud de Laboratorio', route: 'lab-orders' },
+  { key: 'consents',         title: 'Consentimiento',         route: 'consents' },
+  { key: 'quotes',           title: 'Presupuesto',            route: 'quotes' },
+] as const;
+
+type SectionsMap = {
+  prescriptions: Item[];
+  radiology_orders: Item[];
+  lab_orders: Item[];
+  consents: Item[];
+  quotes: Item[];
+};
+
+export default function Page({ params }: { params: { id: string } }) {
+  const patientId = params.id;
+  const [rows, setRows] = useState<SectionsMap>({
+    prescriptions: [], radiology_orders: [], lab_orders: [], consents: [], quotes: []
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+
+      // 1) Queries que ya usan created_at
+      const [presc, rx, labs, quotes] = await Promise.all([
+        supabase.from('prescriptions').select('id, created_at').eq('patient_id', patientId).order('created_at', { ascending: false }),
+        supabase.from('radiology_orders').select('id, created_at').eq('patient_id', patientId).order('created_at', { ascending: false }),
+        supabase.from('lab_orders').select('id, created_at').eq('patient_id', patientId).order('created_at', { ascending: false }),
+        supabase.from('quotes').select('id, created_at').eq('patient_id', patientId).order('created_at', { ascending: false }),
+      ]);
+
+      // 2) Consentimientos: usar signed_at como fecha
+      const cons = await supabase
+        .from('consents')
+        .select('id, signed_at')
+        .eq('patient_id', patientId)
+        .order('signed_at', { ascending: false });
+
+      setRows({
+        prescriptions:    ((presc.data  ?? []) as any[]).map(r => ({ id: r.id, created_at: r.created_at })),
+        radiology_orders: ((rx.data     ?? []) as any[]).map(r => ({ id: r.id, created_at: r.created_at })),
+        lab_orders:       ((labs.data   ?? []) as any[]).map(r => ({ id: r.id, created_at: r.created_at })),
+        consents:         ((cons.data   ?? []) as any[]).map(r => ({ id: r.id, created_at: r.signed_at ?? r.created_at ?? new Date().toISOString() })),
+        quotes:           ((quotes.data ?? []) as any[]).map(r => ({ id: r.id, created_at: r.created_at })),
+      });
+
+      setLoading(false);
+    })();
+  }, [patientId]);
+
+  const fmt = useMemo(
+    () => new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }),
+    []
+  );
 
   return (
-    <div className="p-6 space-y-8">
-      <section>
-        <h2 className="text-lg font-semibold mb-2">Recetas</h2>
-        <table className="w-full text-sm">
-          <thead><tr><th className="text-left p-2">Folio</th><th className="text-left p-2">Fecha</th><th className="text-left p-2">Acciones</th></tr></thead>
-          <tbody>
-            {(presc.data || []).map((r:any) => (
-              <tr key={r.id} className="border-t">
-                <td className="p-2">{r.folio || "—"}</td>
-                <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
-                <td className="p-2"><Link className="underline" href={`/prescriptions/${r.id}/print`} target="_blank">Imprimir</Link></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <h1 className="page-title">Historial de imprimibles</h1>
+      </div>
 
-      <section>
-        <h2 className="text-lg font-semibold mb-2">Solicitudes RX</h2>
-        <table className="w-full text-sm">
-          <thead><tr><th className="text-left p-2">Folio</th><th className="text-left p-2">Fecha</th><th className="text-left p-2">Acciones</th></tr></thead>
-          <tbody>
-            {(rx.data || []).map((r:any) => (
-              <tr key={r.id} className="border-t">
-                <td className="p-2">{r.folio || "—"}</td>
-                <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
-                <td className="p-2"><Link className="underline" href={`/radiology-orders/${r.id}/print`} target="_blank">Imprimir</Link></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <section>
-        <h2 className="text-lg font-semibold mb-2">Solicitudes de Laboratorio</h2>
-        <table className="w-full text-sm">
-          <thead><tr><th className="text-left p-2">Folio</th><th className="text-left p-2">Fecha</th><th className="text-left p-2">Acciones</th></tr></thead>
-          <tbody>
-            {(lab.data || []).map((r:any) => (
-              <tr key={r.id} className="border-t">
-                <td className="p-2">{r.folio || "—"}</td>
-                <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
-                <td className="p-2"><Link className="underline" href={`/lab-orders/${r.id}/print`} target="_blank">Imprimir</Link></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <section>
-        <h2 className="text-lg font-semibold mb-2">Consentimientos</h2>
-        <table className="w-full text-sm">
-          <thead><tr><th className="text-left p-2">Folio</th><th className="text-left p-2">Fecha</th><th className="text-left p-2">Acciones</th></tr></thead>
-          <tbody>
-            {(cons.data || []).map((r:any) => (
-              <tr key={r.id} className="border-t">
-                <td className="p-2">{r.folio || "—"}</td>
-                <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
-                <td className="p-2"><Link className="underline" href={`/consents/${r.id}/print`} target="_blank">Imprimir</Link></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <div className="card p-4 space-y-6">
+        {SECTIONS.map(({key, title, route}) => {
+          const list = rows[key];
+          return (
+            <div key={key}>
+              <div className="font-semibold mb-2">
+                {title} {list.length ? <span className="text-xs text-neutral-500">({list.length})</span> : null}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full border text-sm">
+                  <thead>
+                    <tr className="bg-neutral-100">
+                      <th className="border px-2 py-1">Fecha</th>
+                      <th className="border px-2 py-1">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {list.map(row => (
+                      <tr key={`${key}-${row.id}`}>
+                        <td className="border px-2 py-1 text-center">{fmt.format(new Date(row.created_at))}</td>
+                        <td className="border px-2 py-1 text-center">
+                          <Link href={`/${route}/${row.id}/print`} className="text-blue-600 hover:underline">
+                            Imprimir
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                    {!loading && list.length === 0 && (
+                      <tr>
+                        <td className="border px-2 py-3 text-gray-500 text-center" colSpan={2}>
+                          No hay documentos.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

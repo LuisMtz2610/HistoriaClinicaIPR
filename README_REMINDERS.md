@@ -2,7 +2,7 @@
 
 ## Qué hace
 - Corre cada **5 minutos**.
-- Envía recordatorios por WhatsApp a **T-24h** y **T-2h** de cada cita (no cancelada).
+- Envía recordatorios por WhatsApp a **T-24h** y **T-2h** de cada cita (no Cancelada).
 - Registra envíos en `public.reminders` (éxitos/errores) evitando duplicados.
 
 ## Archivos

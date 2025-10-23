@@ -1,4 +1,4 @@
--- Enforce no overlapped appointments per patient (except canceladas)
+-- Enforce no overlapped appointments per patient (except Canceladas)
 create extension if not exists btree_gist;
 
 -- Drop old constraint if exists

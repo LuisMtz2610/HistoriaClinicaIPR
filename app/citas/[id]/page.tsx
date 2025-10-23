@@ -145,7 +145,7 @@ export default function AppointmentView() {
       .eq("id", id);
     if (error) return alert(error.message);
     alert("Guardado");
-    router.refresh();
+    router.push('/citas');
   }
 
   if (loading || !row) return <div>Cargando…</div>;

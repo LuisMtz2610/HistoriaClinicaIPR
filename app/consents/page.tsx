@@ -18,7 +18,10 @@ export default function ConsentimientosList() {
   if (!q.data) return <div>Cargando…</div>;
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Consentimientos</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="page-title">Consentimientos</h1>
+        <Link href="/consents/new" className="btn ml-auto">Nueva</Link>
+      </div>
       <table className="w-full border text-sm">
         <thead><tr className="bg-neutral-100">
           <th className="border px-2 py-1 text-left">Folio</th>
@@ -30,7 +33,9 @@ export default function ConsentimientosList() {
           {q.data.map((r:any)=>(
             <tr key={r.id}>
               <td className="border px-2 py-1">{r.id.slice(0,8)}</td>
-              <td className="border px-2 py-1">{r.patients? r.patients.last_name+", "+r.patients.first_name:"—"}</td>
+              <td className="border px-2 py-1">{r.patients && r.patient_id ? (
+              <Link href={`/pacientes/${r.patient_id}`} className="text-blue-600 hover:underline">{r.patients.last_name + ", " + r.patients.first_name}</Link>
+            ) : (r.patients ? r.patients.last_name+", "+r.patients.first_name : '—')}</td>
               <td className="border px-2 py-1">{r.signed_at ? new Date(r.signed_at).toLocaleDateString() : "—"}</td>
               <td className="border px-2 py-1 text-center">
                 <Link href={`/consents/${r.id}/print`} className="text-emerald-600 hover:underline">Imprimir</Link>
