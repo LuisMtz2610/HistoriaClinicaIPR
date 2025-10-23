@@ -1,0 +1,7 @@
+// En app/pacientes/[id]/page.tsx (o donde muestres la ficha):
+import Link from 'next/link';
+
+<div className="flex items-center gap-3">
+  <h1 className="page-title">Paciente</h1>
+  <Link href={`/pacientes/${patient.id}/odontogramas`} className="btn ml-auto">Odontogramas</Link>
+</div>

@@ -1,83 +1,94 @@
-'use client'
 
-import Link from 'next/link'
-import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import PrintActionsCell from '@/components/PrintActionsCell'
+'use client';
 
-type PatientLite = { first_name: string; last_name: string } | null
+import React, { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
-type Row = {
-  patient_id?: string | null;
-  id: string
-  created_at: string
-  patient: PatientLite
-}
+type Pat = { first_name: string; last_name: string } | null;
+type Row = { id: string; dt: string; folio?: string|null; };
+type Group = { patient_id: string|null; patient: Pat; rows: Row[]; };
 
-export default function RadiologyOrdersIndex() {
-  const [rows, setRows] = useState<Row[]>([])
-  const [loading, setLoading] = useState(true)
-  const [err, setErr] = useState<string | null>(null)
+export default function Page() {
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
-      setLoading(true)
-      setErr(null)
+      setLoading(true);
       const { data, error } = await supabase
         .from('radiology_orders')
-        .select('id, created_at, patient_id, patients(first_name,last_name)')
-        .order('created_at', { ascending: false })
-        .limit(200)
-      if (error) { setErr(error.message); setLoading(false); return }
-      const mapped: Row[] = (data as any)?.map((r: any) => ({
-        id: r.id, created_at: r.created_at, patient: r.patients ?? null, patient_id: (r as any).patient_id ?? null
-      })) ?? []
-      setRows(mapped)
-      setLoading(false)
-    })()
-  }, [])
+        .select("id, created_at, patient_id, folio_code, patients(first_name,last_name)")
+        .order('created_at', { ascending: false });
+      if (error) { console.error(error); setLoading(false); return; }
+
+      const by = new Map<string|null, Group>();
+      (data ?? []).forEach((r:any) => {
+        const pid = r.patient_id ?? null;
+        const pat = r.patients ?? null;
+        const row: Row = { id: r.id, dt: r.created_at, folio: r.folio_code ?? null };
+        if (!by.has(pid)) by.set(pid, { patient_id: pid, patient: pat, rows: [] });
+        by.get(pid)!.rows.push(row);
+      });
+
+      const gs = Array.from(by.values()).sort((a,b) => {
+        const an = a.patient ? `${a.patient.last_name} ${a.patient.first_name}` : 'ZZZ';
+        const bn = b.patient ? `${b.patient.last_name} ${b.patient.first_name}` : 'ZZZ';
+        return an.localeCompare(bn, undefined, { sensitivity:'base' });
+      });
+
+      setGroups(gs);
+      setLoading(false);
+    })();
+  }, []);
+
+  const fmt = useMemo(() => new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }), []);
 
   return (
-    <main className="container mx-auto px-4 py-6">
+    <div className="space-y-4">
       <div className="flex items-center gap-3">
         <h1 className="page-title">Solicitudes RX</h1>
-        <Link href="/radiology-orders/new" className="btn ml-auto">Nueva</Link>
+        <Link href="/radiology_orders/new" className="btn ml-auto">Nueva</Link>
       </div>
 
-      {err && <div className="p-3 rounded-md bg-red-50 text-red-700">{err}</div>}
-      {loading ? (
-        <div>Cargando…</div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border bg-white">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left border-b bg-gray-50">
-                <th className="p-2">Paciente</th>
-                <th className="p-2">Fecha</th>
-                <th className="p-2">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 && (
-                <tr><td className="p-3 text-gray-500" colSpan={3}>Sin registros</td></tr>
-              )}
-              {rows.map(r => (
-                <tr key={r.id} className="border-b">
-                  <td className="p-2">{r.patient && r.patient_id ? (
-                <Link href={`/pacientes/${r.patient_id}`} className="text-blue-600 hover:underline">
-                  {`${r.patient.last_name}, ${r.patient.first_name}`}
+      <div className="space-y-6">
+        {groups.map(g => (
+          <div key={g.patient_id ?? 'sin-paciente'} className="card p-4 space-y-3">
+            <div className="font-semibold text-lg">
+              {g.patient && g.patient_id ? (
+                <Link href={`/pacientes/${g.patient_id}`} className="text-blue-600 hover:underline">
+                  {g.patient.last_name}, {g.patient.first_name}
                 </Link>
-              ) : (r.patient ? `${r.patient.last_name}, ${r.patient.first_name}` : '—')}</td>
-                  <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
-                  <td className="p-2 whitespace-nowrap">
-                    <PrintActionsCell module="radiology-orders" id={r.id} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </main>
-  )
+              ) : 'Sin paciente'}
+              <span className="ml-2 text-sm text-neutral-500">({g.rows.length})</span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full border text-sm">
+                <thead>
+                  <tr className="bg-neutral-100">
+                    <th className="border px-2 py-1">Folio</th>
+                    <th className="border px-2 py-1">Fecha</th>
+                    <th className="border px-2 py-1">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.rows.map(r => (
+                    <tr key={r.id}>
+                      <td className="border px-2 py-1">{r.folio ?? ('RX-' + r.id.slice(0,8))}</td>
+                      <td className="border px-2 py-1">{fmt.format(new Date(r.dt))}</td>
+                      <td className="border px-2 py-1"><Link href={`/radiology_orders/${r.id}/print`} className="text-blue-600">Imprimir</Link></td>
+                    </tr>
+                  ))}
+                  {!loading && g.rows.length === 0 && (
+                    <tr><td className="border px-2 py-3 text-gray-500" colSpan={3}>Sin documentos.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

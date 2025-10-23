@@ -1,0 +1,28 @@
+// En tu ficha del paciente (ej. app/pacientes/[id]/page.tsx)
+// 1) Importa los botones:
+import PatientOdontogramActions from '@/components/PatientOdontogramActions';
+import BackButton from '@/components/BackButton';
+
+// 2) Dentro del header EXISTENTE (no lo reemplaces):
+//    Mantén tu logo y accesos (Recetas, Presupuestos, RX, Lab, Consentimientos).
+//    Solo agrega el Back y las acciones a la derecha.
+
+<div className="flex items-center gap-3">
+  {/* Tu logo actual */}
+  {/* <Logo /> */}
+  <BackButton />
+
+  <h1 className="page-title">Paciente</h1>
+
+  {/* Aquí mantén TUS accesos actuales */}
+  <nav className="ml-auto flex items-center gap-2">
+    {/* Ejemplos (no borres los tuyos): */}
+    {/* <Link className="btn" href={`/prescriptions`}>Recetas</Link> */}
+    {/* <Link className="btn" href={`/quotes`}>Presupuestos</Link> */}
+    {/* <Link className="btn" href={`/radiology-orders`}>RX</Link> */}
+    {/* <Link className="btn" href={`/lab-orders`}>Laboratorio</Link> */}
+
+    {/* Botón a odontogramas y, si tienes dos IDs, botón Comparar */}
+    <PatientOdontogramActions patientId={patient.id} />
+  </nav>
+</div>

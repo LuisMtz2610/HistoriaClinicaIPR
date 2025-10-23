@@ -1,0 +1,8 @@
+// Si desde la ficha conoces dos versiones (A y B) para comparar:
+import PatientOdontogramActions from '@/components/PatientOdontogramActions';
+
+<PatientOdontogramActions
+  patientId={patient.id}
+  aId={firstVersionId}
+  bId={secondVersionId}
+/>
