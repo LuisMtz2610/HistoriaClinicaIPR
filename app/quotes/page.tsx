@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -12,7 +11,7 @@ type Row = {
   dt: string;
   folio?: string | null;
   status?: string | null;
-  total: number; // total FINAL (subtotal - discount + tax)
+  total: number;
   paid: number;
   balance: number;
 };
@@ -28,101 +27,123 @@ export default function Page() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
 
-  async function approveQuote(quoteId: string) {
-    if (!confirm('¿Marcar este presupuesto como APROBADO?')) return;
-    const { error } = await supabase
+  const fmt = useMemo(
+    () => new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Mexico_City' }),
+    []
+  );
+  const money = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), []);
+
+  async function load() {
+    setLoading(true);
+
+    const { data, error } = await supabase
       .from('quotes')
-      .update({ status: 'aprobado', accepted_at: new Date().toISOString() })
-      .eq('id', quoteId);
+      .select(
+        "id, created_at, discount, tax, total, status, patient_id, folio_code, quote_items(quantity,unit_price,discount), quote_payments(amount), patients(first_name,last_name)"
+      )
+      .order('created_at', { ascending: false });
+
     if (error) {
-      alert(error.message);
+      console.error(error);
+      setLoading(false);
       return;
     }
-    // recarga simple: vuelve a ejecutar el effect
-    window.location.reload();
+
+    const byPatient = new Map<string | null, Group>();
+
+    (data ?? []).forEach((r: any) => {
+      const pid: string | null = r.patient_id ?? null;
+      const pat: Pat = r.patients ?? null;
+
+      // subtotal REAL por partidas: qty*unit - discount (por partida)
+      const itemsSubtotal =
+        Array.isArray(r.quote_items) && r.quote_items.length
+          ? r.quote_items.reduce((acc: number, it: any) => {
+              const qty = Number(it.quantity || 0);
+              const unit = Number(it.unit_price || 0);
+              const dsc = Number(it.discount || 0);
+              const line = Math.max(0, qty * unit - dsc);
+              return acc + (isFinite(line) ? line : 0);
+            }, 0)
+          : null;
+
+      const headerDiscount = Number(r.discount ?? 0) || 0;
+      const tax = Number(r.tax ?? 0) || 0;
+
+      // total FINAL que paga el cliente
+      const total =
+        itemsSubtotal !== null
+          ? Math.max(0, itemsSubtotal - headerDiscount + tax)
+          : (Number(r.total) || 0);
+
+      const paid = (r.quote_payments ?? []).reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+      const balance = total - paid;
+
+      const row: Row = {
+        id: r.id,
+        dt: r.created_at ?? new Date().toISOString(),
+        folio: r.folio_code ?? null,
+        status: r.status ?? null,
+        total,
+        paid,
+        balance,
+      };
+
+      if (!byPatient.has(pid)) {
+        byPatient.set(pid, {
+          patient_id: pid,
+          patient: pat,
+          rows: [],
+          totals: { total: 0, paid: 0, balance: 0 },
+        });
+      }
+      const g = byPatient.get(pid)!;
+      g.rows.push(row);
+      g.totals.total += total;
+      g.totals.paid += paid;
+      g.totals.balance += balance;
+    });
+
+    const gs = Array.from(byPatient.values()).sort((a, b) => {
+      const an = a.patient ? `${a.patient.last_name} ${a.patient.first_name}` : 'ZZZ';
+      const bn = b.patient ? `${b.patient.last_name} ${b.patient.first_name}` : 'ZZZ';
+      return an.localeCompare(bn, undefined, { sensitivity: 'base' });
+    });
+
+    setGroups(gs);
+    setLoading(false);
   }
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('quotes')
-        .select("id, created_at, subtotal, discount, tax, total, status, patient_id, folio_code, quote_items(quantity,unit_price,discount), quote_payments(amount), patients(first_name,last_name)")
-        .order('created_at', { ascending: false });
-
-      if (error) { console.error(error); setLoading(false); return; }
-
-      const byPatient = new Map<string|null, Group>();
-
-      (data ?? []).forEach((r: any) => {
-        const pid: string | null = r.patient_id ?? null;
-        const pat: Pat = r.patients ?? null;
-                const subtotal = r.subtotal === null || r.subtotal === undefined ? null : Number(r.subtotal);
-        const discount = Number(r.discount ?? 0) || 0; // descuento GENERAL del encabezado
-        const tax = Number(r.tax ?? 0) || 0;
-
-        // Subtotal REAL por partidas: qty*unit - discount (por partida). NO confiar en quotes.subtotal ni quote_items.line_total.
-        const itemsSubtotal =
-          Array.isArray(r.quote_items) && r.quote_items.length
-            ? r.quote_items.reduce((acc: number, it: any) => {
-                const qty = Number(it.quantity || 0);
-                const unit = Number(it.unit_price || 0);
-                const dsc = Number(it.discount || 0);
-                const line = Math.max(0, qty * unit - dsc);
-                return acc + (isFinite(line) ? line : 0);
-              }, 0)
-            : subtotal;
-
-        const total = itemsSubtotal !== null ? (itemsSubtotal - discount + tax) : (Number(r.total) || 0);
-        const paid = (r.quote_payments ?? []).reduce((a:number,p:any)=>a+(Number(p.amount)||0),0);
-        const balance = total - paid;
-
-        const row: Row = {
-          id: r.id,
-          dt: r.created_at ?? new Date().toISOString(),
-          folio: r.folio_code ?? null,
-          status: r.status ?? null,
-          total, paid, balance
-        };
-
-        if (!byPatient.has(pid)) {
-          byPatient.set(pid, {
-            patient_id: pid,
-            patient: pat,
-            rows: [],
-            totals: { total: 0, paid: 0, balance: 0 },
-          });
-        }
-        const g = byPatient.get(pid)!;
-        g.rows.push(row);
-        g.totals.total += total;
-        g.totals.paid += paid;
-        g.totals.balance += balance;
-      });
-
-      const gs = Array.from(byPatient.values()).sort((a, b) => {
-        const an = a.patient ? `${a.patient.last_name} ${a.patient.first_name}` : 'ZZZ';
-        const bn = b.patient ? `${b.patient.last_name} ${b.patient.first_name}` : 'ZZZ';
-        return an.localeCompare(bn, undefined, { sensitivity: 'base' });
-      });
-
-      setGroups(gs);
-      setLoading(false);
-    })();
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fmt = useMemo(() => new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Mexico_City' }), []);
-  const money = useMemo(()=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}),[]);
+  async function approveQuote(id: string) {
+    const { error } = await supabase
+      .from('quotes')
+      .update({ status: 'aprobado' })
+      .eq('id', id);
+
+    if (error) {
+      alert('No se pudo aprobar: ' + error.message);
+      return;
+    }
+
+    await load();
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <h1 className="page-title">Presupuestos</h1>
-        <Link href="/quotes/new" className="btn ml-auto">Nueva</Link>
+        <Link href="/quotes/new" className="btn ml-auto">
+          Nueva
+        </Link>
       </div>
 
       <div className="space-y-6">
-        {groups.map(g => (
+        {groups.map((g) => (
           <div key={g.patient_id ?? 'sin-paciente'} className="card p-4 space-y-3">
             <div className="flex items-baseline gap-3">
               <div className="font-semibold text-lg">
@@ -135,10 +156,20 @@ export default function Page() {
                 )}
                 <span className="ml-2 text-sm text-neutral-500">({g.rows.length})</span>
               </div>
+
               <div className="ml-auto text-sm">
-                <span className="mr-4">Total: <b>{money.format(g.totals.total)}</b></span>
-                <span className="mr-4">Pagado: <b>{money.format(g.totals.paid)}</b></span>
-                <span>Saldo: <b className={g.totals.balance>0?'text-rose-600':'text-emerald-600'}>{money.format(g.totals.balance)}</b></span>
+                <span className="mr-4">
+                  Total: <b>{money.format(g.totals.total)}</b>
+                </span>
+                <span className="mr-4">
+                  Pagado: <b>{money.format(g.totals.paid)}</b>
+                </span>
+                <span>
+                  Saldo:{' '}
+                  <b className={g.totals.balance > 0 ? 'text-rose-600' : 'text-emerald-600'}>
+                    {money.format(g.totals.balance)}
+                  </b>
+                </span>
               </div>
             </div>
 
@@ -155,27 +186,34 @@ export default function Page() {
                   </tr>
                 </thead>
                 <tbody>
-                  {g.rows.map(r => (
+                  {g.rows.map((r) => (
                     <tr key={r.id}>
                       <td className="border px-2 py-1">
-                        <div className="flex items-center gap-2">
-                          <span>{r.folio ?? ('QUO-' + r.id.slice(0,8))}</span>
-                          {r.status === 'aprobado' && (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Aprobado</span>
-                          )}
-                        </div>
+                        {r.folio ?? 'QUO-' + r.id.slice(0, 8)}
+                        {r.status === 'aprobado' && (
+                          <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                            Aprobado
+                          </span>
+                        )}
                       </td>
                       <td className="border px-2 py-1">{fmt.format(new Date(r.dt))}</td>
                       <td className="border px-2 py-1 text-right">{money.format(r.total)}</td>
                       <td className="border px-2 py-1 text-right">{money.format(r.paid)}</td>
-                      <td className="border px-2 py-1 text-right"><span className={r.balance>0?'text-rose-600':'text-emerald-600'}>{money.format(r.balance)}</span></td>
+                      <td className="border px-2 py-1 text-right">
+                        <span className={r.balance > 0 ? 'text-rose-600' : 'text-emerald-600'}>{money.format(r.balance)}</span>
+                      </td>
                       <td className="border px-2 py-1 whitespace-nowrap">
-                        <Link href={`/quotes/${r.id}`} className="mr-3 text-blue-600">Abrir</Link>
-                        <Link href={`/quotes/${r.id}/print`} className="text-blue-600">Imprimir</Link>
+                        <Link href={`/quotes/${r.id}`} className="mr-3 text-blue-600">
+                          Abrir
+                        </Link>
+                        <Link href={`/quotes/${r.id}/print`} className="mr-3 text-blue-600">
+                          Imprimir
+                        </Link>
                         {r.status !== 'aprobado' && (
                           <button
+                            type="button"
                             onClick={() => approveQuote(r.id)}
-                            className="ml-3 text-emerald-700 hover:underline"
+                            className="text-emerald-700 hover:underline"
                           >
                             Aprobar
                           </button>
@@ -185,7 +223,9 @@ export default function Page() {
                   ))}
                   {!loading && g.rows.length === 0 && (
                     <tr>
-                      <td className="border px-2 py-3 text-gray-500" colSpan={6}>Sin documentos.</td>
+                      <td className="border px-2 py-3 text-gray-500" colSpan={6}>
+                        Sin documentos.
+                      </td>
                     </tr>
                   )}
                 </tbody>

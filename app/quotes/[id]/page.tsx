@@ -1,12 +1,4 @@
-/**
- * Change Summary:
- * - Servicios: agrega descuento por partida, edición (no solo eliminar) y autocomplete.
- * - Autocomplete: sugiere desde services_catalog + historial (quote_items).
- * - Vigencia (valid_until): input tipo date guardado como YYYY-MM-DD (sin desfase UTC).
- * - Fechas en MX: formateo con zona America/Mexico_City.
- * - Aprobación: botón para cambiar quotes.status a 'aprobado'.
- */
-
+// app/quotes/[id]/page.tsx
 'use client'
 
 import Link from 'next/link'
@@ -15,12 +7,14 @@ import { supabase } from '@/lib/supabase'
 import ShareWhatsAppButtonKit from '@/components/kit/ShareWhatsAppButtonKit'
 import SignaturePadKit from '@/components/kit/SignaturePadKit'
 
+type QuoteStatus = 'borrador' | 'aprobado' | string
+
 type Quote = {
   id: string
   patient_id: string
-  status: string
+  status: QuoteStatus
   created_at?: string | null
-  valid_until: string | null // date (YYYY-MM-DD)
+  valid_until?: string | null // YYYY-MM-DD
   discount: number | null
   tax: number | null
   subtotal: number | null
@@ -28,21 +22,19 @@ type Quote = {
   terms: string | null
   notes: string | null
   signature_path: string | null
-  folio_num?: number | null
   folio_code?: string | null
 }
 
 type Item = {
   id: string
   quote_id: string
-  service_code: string | null
+  service_code?: string | null
   description: string
   quantity: number
   unit_price: number
-  discount: number
-  line_total: number | null
+  discount?: number | null
+  line_total?: number | null
   notes: string | null
-  created_at?: string
 }
 
 type Payment = {
@@ -55,21 +47,30 @@ type Payment = {
   notes: string | null
 }
 
-type ServiceSuggestion = {
-  key: string // normalized
-  label: string
-  unit_price: number
+type Suggestion = {
+  key: string
   source: 'catalog' | 'history'
-  service_id?: string
+  id?: string
+  name: string
+  unit_price: number
 }
 
-function normKey(s: string) {
-  return (s || '').trim().toLowerCase()
+function formatDateTimeMX(iso: string | null | undefined) {
+  if (!iso) return '—'
+  try {
+    return new Intl.DateTimeFormat('es-MX', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+      timeZone: 'America/Mexico_City',
+    }).format(new Date(iso))
+  } catch {
+    return new Date(iso).toLocaleString()
+  }
 }
 
 function formatDateOnlyMX(ymd: string | null | undefined) {
-  // ymd = YYYY-MM-DD (date type); NO usar new Date(ymd) porque se interpreta UTC y puede restar 1 día.
   if (!ymd) return '—'
+  // IMPORTANT: no usar new Date('YYYY-MM-DD') porque aplica UTC y puede restar un día.
   const [y, m, d] = ymd.split('-').map((x) => Number(x))
   if (!y || !m || !d) return ymd
   const dd = String(d).padStart(2, '0')
@@ -98,34 +99,40 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
-  // Servicios: autocomplete + alta
-  const [services, setServices] = useState<ServiceSuggestion[]>([])
-  const catalogByKey = useMemo(() => {
-    const m = new Map<string, ServiceSuggestion>()
-    services.filter((s) => s.source === 'catalog').forEach((s) => m.set(s.key, s))
-    return m
-  }, [services])
-
+  // Autocomplete / Alta de servicios
   const [svcQuery, setSvcQuery] = useState('')
-  const [svcQty, setSvcQty] = useState<number>(1)
-  const [svcUnit, setSvcUnit] = useState<number>(0)
-  const [svcDiscount, setSvcDiscount] = useState<number>(0)
+  const [addQty, setAddQty] = useState<number>(1)
+  const [addUnit, setAddUnit] = useState<number>(0)
+  const [addDiscount, setAddDiscount] = useState<number>(0)
   const [showSuggest, setShowSuggest] = useState(false)
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
+  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
   const suggestRef = useRef<HTMLDivElement | null>(null)
 
   // Edición de partida
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editDraft, setEditDraft] = useState<Partial<Item> | null>(null)
+  const [edDesc, setEdDesc] = useState('')
+  const [edQty, setEdQty] = useState<number>(1)
+  const [edUnit, setEdUnit] = useState<number>(0)
+  const [edDiscount, setEdDiscount] = useState<number>(0)
+  const [edServiceId, setEdServiceId] = useState<string | null>(null)
+
+  const money = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
   // Carga inicial
   useEffect(() => {
     let active = true
-
-    async function loadAll() {
+    async function load() {
       setLoading(true)
       setErr(null)
 
-      const qRes = await supabase.from('quotes').select('*').eq('id', id).single()
+      // Presupuesto
+      const qRes = await supabase
+        .from('quotes')
+        .select('id, patient_id, status, created_at, valid_until, discount, tax, subtotal, total, terms, notes, signature_path, folio_code')
+        .eq('id', id)
+        .single()
+
       if (qRes.error) {
         setErr(qRes.error.message)
         setLoading(false)
@@ -138,41 +145,28 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
       const pn = await supabase
         .from('patients')
         .select('first_name,last_name')
-        .eq('id', qRes.data.patient_id)
+        .eq('id', (qRes.data as any).patient_id)
         .single()
       if (!pn.error && pn.data) setPatientName(`${pn.data.last_name}, ${pn.data.first_name}`)
 
+      // Partidas
       await reloadItems()
+
+      // Pagos
       await reloadPayments()
-      await loadServiceSuggestions()
 
       setLoading(false)
     }
 
-    loadAll()
-
-    // cerrar dropdown si das click fuera
-    function onDocClick(e: MouseEvent) {
-      if (!suggestRef.current) return
-      if (!suggestRef.current.contains(e.target as any)) {
-        setShowSuggest(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocClick)
-
+    load()
     return () => {
       active = false
-      document.removeEventListener('mousedown', onDocClick)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   async function reloadItems() {
-    const iRes = await supabase
-      .from('quote_items')
-      .select('*')
-      .eq('quote_id', id)
-      .order('created_at', { ascending: true })
+    const iRes = await supabase.from('quote_items').select('*').eq('quote_id', id).order('id')
     if (!iRes.error) setItems((iRes.data as any) || [])
   }
 
@@ -185,173 +179,218 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
     if (!error) setPayments((data as any) || [])
   }
 
-  async function loadServiceSuggestions() {
-    // 1) Catálogo
-    const cat = await supabase
-      .from('services_catalog')
-      .select('id, name, unit_price')
-      .order('name', { ascending: true })
-      .limit(200)
-
-    const catArr: ServiceSuggestion[] = (cat.data || []).map((s: any) => ({
-      key: normKey(s.name),
-      label: s.name,
-      unit_price: Number(s.unit_price || 0),
-      source: 'catalog',
-      service_id: s.id,
-    }))
-
-    // 2) Historial (quote_items): últimos 250, dedupe por descripción
-    const hist = await supabase
-      .from('quote_items')
-      .select('description, unit_price, created_at')
-      .order('created_at', { ascending: false })
-      .limit(250)
-
-    const seen = new Set<string>(catArr.map((x) => x.key))
-    const histArr: ServiceSuggestion[] = []
-    for (const r of (hist.data as any[]) || []) {
-      const label = (r.description || '').toString()
-      const key = normKey(label)
-      if (!key || seen.has(key)) continue
-      seen.add(key)
-      histArr.push({
-        key,
-        label,
-        unit_price: Number(r.unit_price || 0),
-        source: 'history',
-      })
-      if (histArr.length >= 200) break
-    }
-
-    setServices([...catArr, ...histArr])
-  }
-
-  const filteredSuggestions = useMemo(() => {
-    const term = normKey(svcQuery)
-    if (!term) return []
-    const hits = services
-      .filter((s) => s.key.includes(term))
-      .sort((a, b) => {
-        // preferir catálogo
-        if (a.source !== b.source) return a.source === 'catalog' ? -1 : 1
-        // luego alfabético
-        return a.label.localeCompare(b.label, 'es', { sensitivity: 'base' })
-      })
-    return hits.slice(0, 8)
-  }, [services, svcQuery])
-
-  // Helpers de totales (incluye descuento por partida y descuento general)
+  // Helpers de totales
   const itemsSubtotal = useMemo(() => {
-    // NO confiar en quote_items.line_total porque puede estar desfasado; calculamos con qty*unit - discount.
+    // NO confiar en quote_items.line_total (puede estar desfasado). Calculamos con qty*unit - discount.
     return items.reduce((s, it) => {
       const qty = Number(it.quantity || 0)
       const unit = Number(it.unit_price || 0)
-      const dsc = Number((it as any).discount ?? 0)
+      const dsc = Number(it.discount ?? 0)
       const line = Math.max(0, qty * unit - dsc)
       return s + (isFinite(line) ? line : 0)
     }, 0)
   }, [items])
 
-  const discountHeader = Number(q?.discount || 0)
+  const headerDiscount = Number(q?.discount || 0)
   const tax = Number(q?.tax || 0)
-  const computedTotal = itemsSubtotal - discountHeader + tax
+  const computedTotal = itemsSubtotal - headerDiscount + tax
   const paidAmount = payments.reduce((s, p) => s + Number(p.amount || 0), 0)
   const balance = computedTotal - paidAmount
 
-  // ------- Partidas -------
-  async function ensureServiceInCatalog(name: string, unit_price: number) {
-    const key = normKey(name)
-    const existing = catalogByKey.get(key)
-    if (existing?.service_id) return existing.service_id
+  // Click afuera del autocomplete
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      const el = suggestRef.current
+      if (!el) return
+      if (!el.contains(e.target as Node)) setShowSuggest(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [])
 
-    // intenta insertar; si choca por UNIQUE(name), hacemos select
+  // Buscar sugerencias (Opción A: catálogo primero + histórico)
+  useEffect(() => {
+    const qv = svcQuery.trim()
+    if (!qv) {
+      setSuggestions([])
+      setShowSuggest(false)
+      setSelectedServiceId(null)
+      return
+    }
+
+    const t = setTimeout(async () => {
+      try {
+        const [cat, hist] = await Promise.all([
+          supabase
+            .from('services_catalog')
+            .select('id, name, unit_price')
+            .ilike('name', `%${qv}%`)
+            .order('name')
+            .limit(8),
+          supabase
+            .from('quote_items')
+            .select('description, unit_price')
+            .ilike('description', `%${qv}%`)
+            .order('description')
+            .limit(8),
+        ])
+
+        const out: Suggestion[] = []
+        const seen = new Set<string>()
+
+        if (!cat.error) {
+          for (const r of (cat.data as any[]) || []) {
+            const name = String(r.name || '').trim()
+            if (!name) continue
+            const k = name.toLowerCase()
+            if (seen.has(k)) continue
+            seen.add(k)
+            out.push({
+              key: `cat:${r.id}`,
+              source: 'catalog',
+              id: r.id,
+              name,
+              unit_price: Number(r.unit_price || 0),
+            })
+          }
+        }
+
+        if (!hist.error) {
+          for (const r of (hist.data as any[]) || []) {
+            const name = String(r.description || '').trim()
+            if (!name) continue
+            const k = name.toLowerCase()
+            if (seen.has(k)) continue
+            seen.add(k)
+            out.push({
+              key: `hist:${k}`,
+              source: 'history',
+              name,
+              unit_price: Number(r.unit_price || 0),
+            })
+          }
+        }
+
+        setSuggestions(out)
+        setShowSuggest(true)
+      } catch {
+        // silencioso
+      }
+    }, 180)
+
+    return () => clearTimeout(t)
+  }, [svcQuery])
+
+  async function ensureServiceInCatalog(name: string, unit_price: number) {
+    const clean = name.trim()
+    if (!clean) return null
+
+    // 1) Exact-ish by name (case-insensitive)
+    const existing = await supabase
+      .from('services_catalog')
+      .select('id, name, unit_price')
+      .ilike('name', clean)
+      .limit(1)
+
+    if (!existing.error && existing.data && existing.data.length) {
+      return { id: (existing.data as any)[0].id as string }
+    }
+
+    // 2) Insert new
     const ins = await supabase
       .from('services_catalog')
-      .insert({ name, unit_price })
+      .insert({ name: clean, unit_price: Number(unit_price || 0) })
       .select('id')
       .single()
 
-    if (!ins.error && ins.data?.id) return ins.data.id as string
+    if (ins.error) {
+      console.warn('services_catalog insert:', ins.error.message)
+      return null
+    }
 
-    const sel = await supabase
-      .from('services_catalog')
-      .select('id')
-      .eq('name', name)
-      .single()
-    if (!sel.error && sel.data?.id) return sel.data.id as string
-
-    return null
+    return { id: (ins.data as any).id as string }
   }
 
+  function pickSuggestion(s: Suggestion) {
+    setSvcQuery(s.name)
+    setAddUnit(Number(s.unit_price || 0))
+    setSelectedServiceId(s.source === 'catalog' ? s.id || null : null)
+    setShowSuggest(false)
+  }
+
+  // -------- Partidas --------
   async function addItem(e: React.FormEvent) {
     e.preventDefault()
     const description = svcQuery.trim()
-    const quantity = Number(svcQty || 1)
-    const unit_price = Number(svcUnit || 0)
-    const discount = Number(svcDiscount || 0)
+    const quantity = Number(addQty || 1)
+    const unit_price = Number(addUnit || 0)
+    const discount = Number(addDiscount || 0)
+
     if (!description) return
 
-    let service_code: string | null = null
-    // si viene del catálogo o es nuevo, intentamos mantenerlo
-    service_code = await ensureServiceInCatalog(description, unit_price)
+    let serviceId = selectedServiceId
+    if (!serviceId) {
+      const ensured = await ensureServiceInCatalog(description, unit_price)
+      serviceId = ensured?.id ?? null
+    }
+
+    const line_total = Math.max(0, quantity * unit_price - discount)
 
     const { error } = await supabase
       .from('quote_items')
-      .insert({ quote_id: id, description, quantity, unit_price, discount, line_total: Math.max(0, quantity * unit_price - discount), service_code })
+      .insert({ quote_id: id, description, quantity, unit_price, discount, line_total, service_code: serviceId })
 
     if (error) {
       alert(error.message)
       return
     }
 
-    // reset
+    // reset form
     setSvcQuery('')
-    setSvcQty(1)
-    setSvcUnit(0)
-    setSvcDiscount(0)
-    setShowSuggest(false)
+    setAddQty(1)
+    setAddUnit(0)
+    setAddDiscount(0)
+    setSelectedServiceId(null)
 
     await reloadItems()
-    await loadServiceSuggestions()
+
+    try {
+      const { error: rpcError } = await supabase.rpc('sync_quote_totals')
+      if (rpcError) console.warn('sync_quote_totals:', rpcError.message)
+    } catch {
+      // silencioso
+    }
   }
 
-  async function startEdit(it: Item) {
+  function startEdit(it: Item) {
     setEditingId(it.id)
-    setEditDraft({
-      id: it.id,
-      description: it.description,
-      quantity: Number(it.quantity || 0),
-      unit_price: Number(it.unit_price || 0),
-      discount: Number((it as any).discount ?? 0),
-      notes: it.notes ?? null,
-      service_code: (it as any).service_code ?? null,
-    })
-  }
-
-  async function cancelEdit() {
-    setEditingId(null)
-    setEditDraft(null)
+    setEdDesc(String(it.description || ''))
+    setEdQty(Number(it.quantity || 1))
+    setEdUnit(Number(it.unit_price || 0))
+    setEdDiscount(Number(it.discount ?? 0))
+    setEdServiceId((it.service_code as any) || null)
   }
 
   async function saveEdit() {
-    if (!editingId || !editDraft) return
+    if (!editingId) return
 
-    const description = (editDraft.description || '').toString().trim()
-    const quantity = Number(editDraft.quantity || 1)
-    const unit_price = Number(editDraft.unit_price || 0)
-    const discount = Number((editDraft as any).discount ?? 0)
+    const description = edDesc.trim()
+    const quantity = Number(edQty || 1)
+    const unit_price = Number(edUnit || 0)
+    const discount = Number(edDiscount || 0)
+    if (!description) return
 
-    if (!description) {
-      alert('El servicio / concepto es requerido.')
-      return
+    let serviceId = edServiceId
+    if (!serviceId) {
+      const ensured = await ensureServiceInCatalog(description, unit_price)
+      serviceId = ensured?.id ?? null
     }
 
-    const service_code = await ensureServiceInCatalog(description, unit_price)
+    const line_total = Math.max(0, quantity * unit_price - discount)
 
     const { error } = await supabase
       .from('quote_items')
-      .update({ description, quantity, unit_price, discount, line_total: Math.max(0, quantity * unit_price - discount), service_code })
+      .update({ description, quantity, unit_price, discount, line_total, service_code: serviceId })
       .eq('id', editingId)
 
     if (error) {
@@ -359,9 +398,15 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
       return
     }
 
+    setEditingId(null)
     await reloadItems()
-    await loadServiceSuggestions()
-    await cancelEdit()
+
+    try {
+      const { error: rpcError } = await supabase.rpc('sync_quote_totals')
+      if (rpcError) console.warn('sync_quote_totals:', rpcError.message)
+    } catch {
+      // silencioso
+    }
   }
 
   async function removeItem(itemId: string) {
@@ -372,57 +417,63 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
       return
     }
     await reloadItems()
+
+    try {
+      const { error: rpcError } = await supabase.rpc('sync_quote_totals')
+      if (rpcError) console.warn('sync_quote_totals:', rpcError.message)
+    } catch {
+      // silencioso
+    }
   }
 
-  // ------- Encabezado -------
+  // -------- Encabezado (totales, términos/notas, vigencia) --------
   async function saveHeader(e: React.FormEvent) {
     e.preventDefault()
     if (!q) return
     const f = e.target as any
 
-    const valid_until = (f.valid_until?.value || '').toString().trim() || null // YYYY-MM-DD
+    const discount = Number(f.discount.value || 0)
+    const tax = Number(f.tax.value || 0)
+    const valid_until = f.valid_until.value || null // YYYY-MM-DD
+
     const updates = {
-      discount: Number(f.discount.value || 0),
-      tax: Number(f.tax.value || 0),
+      discount,
+      tax,
+      valid_until,
       terms: f.terms.value,
       notes: f.notes.value,
-      valid_until,
       subtotal: itemsSubtotal,
-      total: itemsSubtotal - Number(f.discount.value || 0) + Number(f.tax.value || 0),
+      total: itemsSubtotal - discount + tax,
     }
 
     const { error } = await supabase.from('quotes').update(updates).eq('id', q.id)
-    if (error) alert(error.message)
-    else {
-      // refrescar quote
-      const qRes = await supabase.from('quotes').select('*').eq('id', id).single()
-      if (!qRes.error) setQ(qRes.data as any)
-      alert('Presupuesto guardado')
+    if (error) {
+      alert(error.message)
+      return
     }
+
+    setQ({ ...q, ...updates } as any)
+    alert('Presupuesto guardado')
   }
 
   async function approveQuote() {
     if (!q) return
-    if (!confirm('¿Marcar este presupuesto como APROBADO?')) return
     const { error } = await supabase
       .from('quotes')
-      .update({ status: 'aprobado', accepted_at: new Date().toISOString() })
+      .update({ status: 'aprobado' })
       .eq('id', q.id)
     if (error) {
       alert(error.message)
       return
     }
-    const qRes = await supabase.from('quotes').select('*').eq('id', id).single()
-    if (!qRes.error) setQ(qRes.data as any)
+    setQ({ ...q, status: 'aprobado' } as any)
   }
 
-  // ------- Pagos -------
+  // -------- Pagos --------
   async function addPayment(e: React.FormEvent) {
     e.preventDefault()
     const f = e.target as any
-    const paid_at = f.paid_at.value
-      ? new Date(f.paid_at.value).toISOString()
-      : new Date().toISOString()
+    const paid_at = f.paid_at.value ? new Date(f.paid_at.value).toISOString() : new Date().toISOString()
     const method = f.method.value as Payment['method']
     const amount = Number(f.amount.value || 0)
     const reference = f.reference.value || null
@@ -433,9 +484,7 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
       return
     }
 
-    const { error } = await supabase
-      .from('quote_payments')
-      .insert({ quote_id: id, paid_at, method, amount, reference, notes })
+    const { error } = await supabase.from('quote_payments').insert({ quote_id: id, paid_at, method, amount, reference, notes })
 
     if (error) {
       alert(error.message)
@@ -455,22 +504,7 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
     await reloadPayments()
   }
 
-  const fmtDateTimeMX = useMemo(
-    () =>
-      new Intl.DateTimeFormat('es-MX', {
-        dateStyle: 'short',
-        timeStyle: 'short',
-        timeZone: 'America/Mexico_City',
-      }),
-    []
-  )
-
-  const money = useMemo(
-    () => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }),
-    []
-  )
-
-  // ------- Render -------
+  // -------- Render --------
   if (loading) return <div className="p-4">Cargando…</div>
   if (err) return <div className="p-4 text-red-600">Error: {err}</div>
   if (!q) return <div className="p-4">No encontrado</div>
@@ -478,285 +512,259 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
   return (
     <main className="container mx-auto px-4 py-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold">Presupuesto</h1>
-            {q.status === 'aprobado' ? (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Aprobado</span>
-            ) : (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700">{q.status}</span>
-            )}
-          </div>
+          <h1 className="text-xl font-semibold">Presupuesto</h1>
+          <p className="text-sm text-gray-600">Folio: {q.folio_code || q.id}</p>
           <p className="text-sm text-gray-600">Paciente: {patientName || q.patient_id}</p>
-          <p className="text-xs text-gray-500">
-            Folio: {q.folio_code || `QUO-${q.id.slice(0, 8)}`} · Fecha: {q.created_at ? fmtDateTimeMX.format(new Date(q.created_at)) : '—'}
-          </p>
+          <p className="text-sm text-gray-600">Fecha: {formatDateTimeMX(q.created_at)}</p>
+          <p className="text-sm text-gray-600">Vigencia: {formatDateOnlyMX(q.valid_until)}</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+        <div className="flex items-center gap-2">
           <button form="quote-header-form" className="px-3 py-2 rounded-xl bg-emerald-600 text-white">
-            Guardar
+            Guardar presupuesto
           </button>
-          {q.status !== 'aprobado' && (
-            <button onClick={approveQuote} className="px-3 py-2 rounded-xl bg-emerald-800 text-white">
-              Marcar aprobado
-            </button>
-          )}
           <Link href={`/quotes/${q.id}/print`} className="px-3 py-2 rounded-xl bg-gray-800 text-white">
             Imprimir
           </Link>
+          {q.status !== 'aprobado' ? (
+            <button onClick={approveQuote} className="px-3 py-2 rounded-xl bg-blue-600 text-white">
+              Marcar aprobado
+            </button>
+          ) : (
+            <span className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm">Aprobado</span>
+          )}
           <ShareWhatsAppButtonKit quoteId={q.id} />
         </div>
       </div>
 
       {/* Encabezado / Totales */}
-      <form id="quote-header-form" onSubmit={saveHeader} className="bg-white rounded-2xl shadow p-5 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-          <label className="block md:col-span-2">
-            <span className="text-sm text-gray-600">Vigencia</span>
-            <input
-              name="valid_until"
-              type="date"
-              defaultValue={q.valid_until || ''}
-              className="mt-1 w-full border rounded-xl px-3 py-2"
-            />
-            <div className="text-[11px] text-gray-500 mt-1">Se guarda como fecha (sin UTC). Vista: {formatDateOnlyMX(q.valid_until)}</div>
+      <form id="quote-header-form" onSubmit={saveHeader} className="bg-white rounded-2xl shadow p-5 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <label className="block">
+            <span className="text-sm text-gray-600">Vigencia (fecha)</span>
+            <input name="valid_until" type="date" defaultValue={q.valid_until ?? ''} className="w-full border rounded-xl px-3 py-2" />
           </label>
 
-          <label className="block md:col-span-2">
+          <label className="block">
             <span className="text-sm text-gray-600">Descuento general (MXN)</span>
-            <input
-              name="discount"
-              defaultValue={q.discount || 0}
-              type="number"
-              step="0.01"
-              className="mt-1 w-full border rounded-xl px-3 py-2"
-            />
+            <input name="discount" type="number" step="0.01" defaultValue={q.discount ?? 0} className="w-full border rounded-xl px-3 py-2" />
           </label>
 
-          <label className="block md:col-span-2">
+          <label className="block">
             <span className="text-sm text-gray-600">Impuestos (MXN)</span>
-            <input
-              name="tax"
-              defaultValue={q.tax || 0}
-              type="number"
-              step="0.01"
-              className="mt-1 w-full border rounded-xl px-3 py-2"
-            />
+            <input name="tax" type="number" step="0.01" defaultValue={q.tax ?? 0} className="w-full border rounded-xl px-3 py-2" />
           </label>
 
-          <div className="md:col-span-3 grid grid-cols-2 gap-3">
+          <div className="md:col-span-2 grid grid-cols-3 gap-3 items-end">
             <div>
-              <span className="text-sm text-gray-600">Subtotal (partidas)</span>
-              <div className="mt-1 px-3 py-2 border rounded-xl bg-gray-50">{money.format(itemsSubtotal)}</div>
+              <div className="text-xs text-gray-500">Subtotal</div>
+              <div className="font-semibold">{money.format(itemsSubtotal)}</div>
             </div>
             <div>
-              <span className="text-sm text-gray-600">Total a pagar</span>
-              <div className="mt-1 px-3 py-2 border rounded-xl bg-gray-50">{money.format(computedTotal)}</div>
-            </div>
-          </div>
-
-          <div className="md:col-span-3 grid grid-cols-2 gap-3">
-            <div>
-              <span className="text-sm text-gray-600">Pagado</span>
-              <div className="mt-1 px-3 py-2 border rounded-xl bg-gray-50">{money.format(paidAmount)}</div>
+              <div className="text-xs text-gray-500">Total</div>
+              <div className="font-semibold">{money.format(computedTotal)}</div>
             </div>
             <div>
-              <span className="text-sm text-gray-600">Saldo</span>
-              <div className={`mt-1 px-3 py-2 border rounded-xl bg-gray-50 ${balance > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
-                {money.format(balance)}
-              </div>
+              <div className="text-xs text-gray-500">Saldo</div>
+              <div className={`font-semibold ${balance > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{money.format(balance)}</div>
             </div>
           </div>
         </div>
 
-        <label className="block">
-          <span className="text-sm text-gray-600">Términos / Condiciones</span>
-          <textarea name="terms" defaultValue={q.terms || ''} className="mt-1 w-full border rounded-xl px-3 py-2" rows={3} />
-        </label>
-
-        <label className="block">
-          <span className="text-sm text-gray-600">Notas</span>
-          <textarea name="notes" defaultValue={q.notes || ''} className="mt-1 w-full border rounded-xl px-3 py-2" rows={2} />
-        </label>
-
-        <button className="px-4 py-2 rounded-xl bg-emerald-600 text-white">Guardar encabezado</button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-sm text-gray-600">Términos</span>
+            <textarea name="terms" defaultValue={q.terms ?? ''} className="w-full border rounded-xl px-3 py-2 min-h-[90px]" />
+          </label>
+          <label className="block">
+            <span className="text-sm text-gray-600">Notas</span>
+            <textarea name="notes" defaultValue={q.notes ?? ''} className="w-full border rounded-xl px-3 py-2 min-h-[90px]" />
+          </label>
+        </div>
       </form>
 
       {/* Servicios */}
-      <section className="bg-white rounded-2xl shadow p-5 space-y-4">
-        <h3 className="text-base font-semibold">Servicios</h3>
+      <section className="bg-white rounded-2xl shadow p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold">Servicios</h3>
+          <div className="text-sm text-gray-600">Subtotal partidas: {money.format(itemsSubtotal)}</div>
+        </div>
 
-        <form onSubmit={addItem} className="grid grid-cols-1 md:grid-cols-12 gap-3" ref={suggestRef}>
-          <div className="md:col-span-6 relative">
+        {/* Form + Autocomplete */}
+        <div ref={suggestRef}>
+          <form onSubmit={addItem} className="grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div className="md:col-span-6 relative">
+              <input
+                value={svcQuery}
+                onChange={(e) => {
+                  setSvcQuery(e.target.value)
+                  setSelectedServiceId(null)
+                }}
+                onFocus={() => svcQuery.trim() && setShowSuggest(true)}
+                placeholder="Servicio / concepto"
+                className="w-full border rounded-xl px-3 py-2"
+              />
+
+              {showSuggest && suggestions.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full bg-white border rounded-xl shadow overflow-hidden">
+                  {suggestions.map((s) => (
+                    <button
+                      type="button"
+                      key={s.key}
+                      onClick={() => pickSuggestion(s)}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between gap-3"
+                    >
+                      <span className="truncate">
+                        {s.name}{' '}
+                        <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${s.source === 'catalog' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-50 text-gray-600 border border-gray-200'}`}>
+                          {s.source === 'catalog' ? 'Catálogo' : 'Histórico'}
+                        </span>
+                      </span>
+                      <span className="text-sm text-gray-700">{money.format(s.unit_price)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <input
-              value={svcQuery}
-              onChange={(e) => {
-                setSvcQuery(e.target.value)
-                setShowSuggest(true)
-                const hit = services.find((s) => s.key === normKey(e.target.value))
-                if (hit) setSvcUnit(hit.unit_price)
-              }}
-              onFocus={() => setShowSuggest(true)}
-              placeholder="Servicio / concepto"
-              className="w-full border rounded-xl px-3 py-2"
+              value={addQty}
+              onChange={(e) => setAddQty(Number(e.target.value || 0))}
+              type="number"
+              step="0.01"
+              className="md:col-span-2 border rounded-xl px-3 py-2"
+              placeholder="Cantidad"
+            />
+            <input
+              value={addUnit}
+              onChange={(e) => setAddUnit(Number(e.target.value || 0))}
+              type="number"
+              step="0.01"
+              className="md:col-span-2 border rounded-xl px-3 py-2"
+              placeholder="Unitario"
+            />
+            <input
+              value={addDiscount}
+              onChange={(e) => setAddDiscount(Number(e.target.value || 0))}
+              type="number"
+              step="0.01"
+              className="md:col-span-2 border rounded-xl px-3 py-2"
+              placeholder="Descuento"
             />
 
-            {showSuggest && filteredSuggestions.length > 0 && (
-              <div className="absolute z-20 mt-1 w-full bg-white border rounded-xl shadow overflow-hidden">
-                {filteredSuggestions.map((s) => (
-                  <button
-                    type="button"
-                    key={`${s.source}:${s.key}`}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between"
-                    onClick={() => {
-                      setSvcQuery(s.label)
-                      setSvcUnit(s.unit_price)
-                      setShowSuggest(false)
-                    }}
-                  >
-                    <span>{s.label}</span>
-                    <span className="text-xs text-gray-500">{s.source === 'catalog' ? 'Catálogo' : 'Histórico'} · {money.format(s.unit_price)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+            <button className="md:col-span-12 px-4 py-2 rounded-xl bg-emerald-600 text-white">Agregar</button>
+          </form>
+        </div>
 
-          <input
-            value={svcQty}
-            onChange={(e) => setSvcQty(Number(e.target.value || 1))}
-            type="number"
-            step="0.01"
-            className="md:col-span-2 border rounded-xl px-3 py-2"
-            placeholder="Cantidad"
-          />
-
-          <input
-            value={svcUnit}
-            onChange={(e) => setSvcUnit(Number(e.target.value || 0))}
-            type="number"
-            step="0.01"
-            className="md:col-span-2 border rounded-xl px-3 py-2"
-            placeholder="Unitario"
-          />
-
-          <input
-            value={svcDiscount}
-            onChange={(e) => setSvcDiscount(Number(e.target.value || 0))}
-            type="number"
-            step="0.01"
-            className="md:col-span-2 border rounded-xl px-3 py-2"
-            placeholder="Descuento"
-          />
-
-          <button className="md:col-span-12 px-4 py-2 rounded-xl bg-emerald-600 text-white">Agregar</button>
-        </form>
-
+        {/* Tabla */}
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full border text-sm">
             <thead>
-              <tr className="text-left border-b">
-                <th className="p-2">Servicio</th>
-                <th className="p-2">Cantidad</th>
-                <th className="p-2">Unitario</th>
-                <th className="p-2">Descuento</th>
-                <th className="p-2">Total</th>
-                <th className="p-2">Acciones</th>
+              <tr className="bg-neutral-100">
+                <th className="border px-2 py-1">Servicio</th>
+                <th className="border px-2 py-1 text-right">Cantidad</th>
+                <th className="border px-2 py-1 text-right">Unitario</th>
+                <th className="border px-2 py-1 text-right">Descuento</th>
+                <th className="border px-2 py-1 text-right">Total</th>
+                <th className="border px-2 py-1">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {items.map((it) => {
                 const qty = Number(it.quantity || 0)
                 const unit = Number(it.unit_price || 0)
-                const dsc = Number((it as any).discount ?? 0)
+                const dsc = Number(it.discount ?? 0)
                 const line = Math.max(0, qty * unit - dsc)
 
                 const isEditing = editingId === it.id
-                if (isEditing && editDraft) {
-                  const ed = editDraft
-                  const edQty = Number(ed.quantity || 0)
-                  const edUnit = Number(ed.unit_price || 0)
-                  const edDsc = Number((ed as any).discount ?? 0)
-                  const edLine = Math.max(0, edQty * edUnit - edDsc)
-
-                  return (
-                    <tr key={it.id} className="border-b bg-amber-50/30">
-                      <td className="p-2">
-                        <input
-                          value={(ed.description || '').toString()}
-                          onChange={(e) => setEditDraft({ ...ed, description: e.target.value })}
-                          className="w-full border rounded-lg px-2 py-1"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          value={Number(ed.quantity || 0)}
-                          onChange={(e) => setEditDraft({ ...ed, quantity: Number(e.target.value || 0) })}
-                          type="number"
-                          step="0.01"
-                          className="w-28 border rounded-lg px-2 py-1"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          value={Number(ed.unit_price || 0)}
-                          onChange={(e) => setEditDraft({ ...ed, unit_price: Number(e.target.value || 0) })}
-                          type="number"
-                          step="0.01"
-                          className="w-28 border rounded-lg px-2 py-1"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          value={Number((ed as any).discount ?? 0)}
-                          onChange={(e) => setEditDraft({ ...ed, discount: Number(e.target.value || 0) } as any)}
-                          type="number"
-                          step="0.01"
-                          className="w-28 border rounded-lg px-2 py-1"
-                        />
-                      </td>
-                      <td className="p-2">{money.format(edLine)}</td>
-                      <td className="p-2 whitespace-nowrap">
-                        <button onClick={saveEdit} className="text-emerald-700 hover:underline mr-3" type="button">Guardar</button>
-                        <button onClick={cancelEdit} className="text-gray-600 hover:underline" type="button">Cancelar</button>
-                      </td>
-                    </tr>
-                  )
-                }
 
                 return (
-                  <tr key={it.id} className="border-b">
-                    <td className="p-2">{it.description}</td>
-                    <td className="p-2">{qty.toFixed(2)}</td>
-                    <td className="p-2">{money.format(unit)}</td>
-                    <td className="p-2">{money.format(dsc)}</td>
-                    <td className="p-2">{money.format(line)}</td>
-                    <td className="p-2 whitespace-nowrap">
-                      <button onClick={() => startEdit(it)} className="text-blue-600 hover:underline mr-3" type="button">Editar</button>
-                      <button onClick={() => removeItem(it.id)} className="text-red-600 hover:underline" type="button">Eliminar</button>
+                  <tr key={it.id}>
+                    <td className="border px-2 py-1">
+                      {isEditing ? (
+                        <input value={edDesc} onChange={(e) => setEdDesc(e.target.value)} className="w-full border rounded-lg px-2 py-1" />
+                      ) : (
+                        it.description
+                      )}
+                    </td>
+
+                    <td className="border px-2 py-1 text-right">
+                      {isEditing ? (
+                        <input type="number" step="0.01" value={edQty} onChange={(e) => setEdQty(Number(e.target.value || 0))} className="w-24 border rounded-lg px-2 py-1 text-right" />
+                      ) : (
+                        qty.toFixed(2)
+                      )}
+                    </td>
+
+                    <td className="border px-2 py-1 text-right">
+                      {isEditing ? (
+                        <input type="number" step="0.01" value={edUnit} onChange={(e) => setEdUnit(Number(e.target.value || 0))} className="w-28 border rounded-lg px-2 py-1 text-right" />
+                      ) : (
+                        money.format(unit)
+                      )}
+                    </td>
+
+                    <td className="border px-2 py-1 text-right">
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={edDiscount}
+                          onChange={(e) => setEdDiscount(Number(e.target.value || 0))}
+                          className="w-28 border rounded-lg px-2 py-1 text-right"
+                        />
+                      ) : (
+                        money.format(dsc)
+                      )}
+                    </td>
+
+                    <td className="border px-2 py-1 text-right">{isEditing ? money.format(Math.max(0, edQty * edUnit - edDiscount)) : money.format(line)}</td>
+
+                    <td className="border px-2 py-1 whitespace-nowrap">
+                      {isEditing ? (
+                        <>
+                          <button type="button" onClick={saveEdit} className="mr-3 text-emerald-700">
+                            Guardar
+                          </button>
+                          <button type="button" onClick={() => setEditingId(null)} className="text-gray-600">
+                            Cancelar
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" onClick={() => startEdit(it)} className="mr-3 text-blue-600">
+                            Editar
+                          </button>
+                          <button type="button" onClick={() => removeItem(it.id)} className="text-rose-600">
+                            Eliminar
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 )
               })}
 
-              {items.length === 0 && <tr><td className="p-4 text-gray-500" colSpan={6}>Sin partidas</td></tr>}
+              {!loading && items.length === 0 && (
+                <tr>
+                  <td className="border px-2 py-3 text-gray-500" colSpan={6}>
+                    Sin servicios.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </section>
 
-      {/* Pagos (con historial) */}
-      <section className="bg-white rounded-2xl shadow p-5 space-y-4">
+      {/* Pagos */}
+      <section className="bg-white rounded-2xl shadow p-5 space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold">Pagos</h3>
-          <div className="text-sm text-gray-700">
-            <span className="mr-4">Pagado: <b>{money.format(paidAmount)}</b></span>
-            <span>Saldo: <b>{money.format(balance)}</b></span>
-          </div>
+          <div className="text-sm text-gray-600">Pagado: {money.format(paidAmount)}</div>
         </div>
 
-        {/* Formulario de pago */}
         <form onSubmit={addPayment} className="grid grid-cols-1 md:grid-cols-12 gap-3">
           <input
             name="paid_at"
@@ -764,62 +772,70 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
             className="md:col-span-3 border rounded-xl px-3 py-2"
             defaultValue={toDateTimeLocalValue(new Date())}
           />
+
           <select name="method" className="md:col-span-2 border rounded-xl px-3 py-2" defaultValue="efectivo">
             <option value="efectivo">Efectivo</option>
             <option value="transferencia">Transferencia</option>
             <option value="tarjeta">Tarjeta</option>
             <option value="otros">Otros</option>
           </select>
-          <input name="amount" type="number" step="0.01" placeholder="Monto" className="md:col-span-2 border rounded-xl px-3 py-2" />
-          <input name="reference" placeholder="Referencia" className="md:col-span-2 border rounded-xl px-3 py-2" />
-          <input name="notes" placeholder="Notas" className="md:col-span-2 border rounded-xl px-3 py-2" />
+
+          <input name="amount" type="number" step="0.01" className="md:col-span-2 border rounded-xl px-3 py-2" placeholder="Monto" />
+          <input name="reference" className="md:col-span-2 border rounded-xl px-3 py-2" placeholder="Referencia" />
+          <input name="notes" className="md:col-span-2 border rounded-xl px-3 py-2" placeholder="Notas" />
+
           <button className="md:col-span-1 px-4 py-2 rounded-xl bg-emerald-600 text-white">Agregar</button>
         </form>
 
-        {/* Historial */}
-        <div className="overflow-x-auto rounded-xl border">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full border text-sm">
             <thead>
-              <tr className="text-left border-b bg-gray-50">
-                <th className="p-2">Fecha</th>
-                <th className="p-2">Método</th>
-                <th className="p-2">Monto</th>
-                <th className="p-2">Referencia</th>
-                <th className="p-2">Notas</th>
-                <th className="p-2">Acciones</th>
+              <tr className="bg-neutral-100">
+                <th className="border px-2 py-1">Fecha</th>
+                <th className="border px-2 py-1">Método</th>
+                <th className="border px-2 py-1 text-right">Monto</th>
+                <th className="border px-2 py-1">Ref</th>
+                <th className="border px-2 py-1">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {payments.map((p) => (
-                <tr key={p.id} className="border-b">
-                  <td className="p-2">{fmtDateTimeMX.format(new Date(p.paid_at))}</td>
-                  <td className="p-2 capitalize">{p.method}</td>
-                  <td className="p-2">{money.format(Number(p.amount))}</td>
-                  <td className="p-2">{p.reference || '—'}</td>
-                  <td className="p-2">{p.notes || '—'}</td>
-                  <td className="p-2">
-                    <button onClick={() => removePayment(p.id)} className="text-red-600 hover:underline" type="button">Eliminar</button>
+                <tr key={p.id}>
+                  <td className="border px-2 py-1">{formatDateTimeMX(p.paid_at)}</td>
+                  <td className="border px-2 py-1">{p.method}</td>
+                  <td className="border px-2 py-1 text-right">{money.format(Number(p.amount || 0))}</td>
+                  <td className="border px-2 py-1">{p.reference ?? ''}</td>
+                  <td className="border px-2 py-1">
+                    <button type="button" onClick={() => removePayment(p.id)} className="text-rose-600">
+                      Eliminar
+                    </button>
                   </td>
                 </tr>
               ))}
-              {payments.length === 0 && <tr><td className="p-3 text-gray-500" colSpan={6}>Sin pagos</td></tr>}
+
+              {!loading && payments.length === 0 && (
+                <tr>
+                  <td className="border px-2 py-3 text-gray-500" colSpan={5}>
+                    Sin pagos.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </section>
 
       {/* Firma */}
-      <section className="bg-white rounded-2xl shadow p-5">
-        <h3 className="text-base font-semibold mb-2">Firma de aceptación</h3>
-        <SignaturePadKit patientId={q.patient_id} consentId={`quote-${q.id}`} />
+      <section className="bg-white rounded-2xl shadow p-5 space-y-3">
+        <h3 className="text-base font-semibold">Firma</h3>
+        <SignaturePadKit quoteId={q.id} />
       </section>
 
-      {/* Field Map / Data Sources
-        - services_catalog: {id, name, unit_price} usado para autocomplete y alta automática.
-        - quote_items: {description, quantity, unit_price, discount, line_total, service_code}.
-        - quotes: {valid_until(date), discount(header), tax, subtotal, total, status}.
-        - quote_payments: {paid_at, method, amount}.
-      */}
+      <div className="flex items-center gap-3">
+        <Link href="/quotes" className="text-blue-600 hover:underline">
+          ← Volver a presupuestos
+        </Link>
+      </div>
     </main>
   )
 }

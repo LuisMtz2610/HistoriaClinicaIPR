@@ -11,15 +11,12 @@ type Item = {
   quantity: number
   unit_price: number
   discount?: number | null
-  line_total: number
+  line_total?: number | null
   notes?: string | null
 }
 
 export default async function PrintQuote({ params }: { params: { id: string } }) {
-  const sb = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
 
   // Presupuesto
   const { data: quote, error: qErr } = await sb
@@ -27,6 +24,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
     .select('id, folio_code, patient_id, created_at, valid_until, discount, tax, terms, signature_path')
     .eq('id', params.id)
     .single()
+
   if (qErr || !quote) {
     return <div className="p-6 text-red-600">No se pudo cargar el presupuesto: {qErr?.message}</div>
   }
@@ -46,6 +44,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
       .select('id, concept, description, quantity, unit_price, discount, line_total, notes')
       .eq('quote_id', params.id)
       .order('id', { ascending: true })
+
     if (!a.error) {
       items = (a.data as any) || []
     } else {
@@ -54,6 +53,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
         .select('id, description, quantity, unit_price, discount, line_total, notes')
         .eq('quote_id', params.id)
         .order('id', { ascending: true })
+
       if (b.error) {
         return <div className="p-6 text-red-600">No se pudieron cargar las partidas: {b.error.message}</div>
       }
@@ -61,33 +61,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
     }
   }
 
-  // Totales
-  const itemsSubtotal = (items || []).reduce((s, it) => {
-    const qty = Number(it.quantity || 0)
-    const unit = Number(it.unit_price || 0)
-    const dsc = Number((it as any).discount || 0)
-    const line = Math.max(0, qty * unit - dsc)
-    return s + (isFinite(line) ? line : 0)
-  }, 0)
-  const discount = Number(quote.discount || 0)
-  const tax = Number(quote.tax || 0)
-  const total = Number(itemsSubtotal - discount + tax)
-
-  // Firma (si existe)
-  const signatureUrl = quote.signature_path
-    ? await signedUrl(sb, 'clinical-files', quote.signature_path)
-    : ''
-
-  // Encabezado clínica
-  const clinicHeader = {
-    name: 'Clínica Odontológica Integral — Dra. Isabel Paván Romero',
-    doctor: 'Cirujano Dentista – Céd. Prof. 5454329',
-    specialty: 'Especialidad en Rehabilitación Bucal',
-    masters: 'Maestría en Rehabilitación Oral – Céd. Prof. 9319256',
-    university: 'Universidad Veracruzana',
-    address: 'Deportivo Veracruzano No 29, Fracc. Galaxia, C.P. 94294, Boca del Río, Veracruz',
-  }
-
+  // Fechas MX (evitar desfase UTC)
   const fmtDateTimeMX = (iso?: string | null) =>
     iso
       ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Mexico_City' }).format(new Date(iso))
@@ -97,9 +71,33 @@ export default async function PrintQuote({ params }: { params: { id: string } })
     if (!ymd) return '—'
     const [y, m, d] = ymd.split('-').map((x) => Number(x))
     if (!y || !m || !d) return ymd
-    const dd = String(d).padStart(2, '0')
-    const mm = String(m).padStart(2, '0')
-    return `${dd}/${mm}/${y}`
+    return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
+  }
+
+  // Totales (NO confiar en quote_items.line_total: calculamos con qty*unit - discount)
+  const itemsSubtotal = (items || []).reduce((s, it) => {
+    const qty = Number(it.quantity || 0)
+    const unit = Number(it.unit_price || 0)
+    const dsc = Number(it.discount || 0)
+    const line = Math.max(0, qty * unit - dsc)
+    return s + (isFinite(line) ? line : 0)
+  }, 0)
+
+  const discount = Number(quote.discount || 0)
+  const tax = Number(quote.tax || 0)
+  const total = Math.max(0, itemsSubtotal - discount + tax)
+
+  // Firma (si existe)
+  const signatureUrl = quote.signature_path ? await signedUrl(sb, 'clinical-files', quote.signature_path) : ''
+
+  // Encabezado clínica
+  const clinicHeader = {
+    name: 'Clínica Odontológica Integral — Dra. Isabel Paván Romero',
+    doctor: 'Cirujano Dentista – Céd. Prof. 5454329',
+    specialty: 'Especialidad en Rehabilitación Bucal',
+    masters: 'Maestría en Rehabilitación Oral – Céd. Prof. 9319256',
+    university: 'Universidad Veracruzana',
+    address: 'Deportivo Veracruzano No 29, Fracc. Galaxia, C.P. 94294, Boca del Río, Veracruz',
   }
 
   return (
@@ -125,7 +123,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
         @media print { .no-print { display:none } }
       `}</style>
 
-      {/* Encabezado con logo (coloca /public/clinica-logo.png) */}
+      {/* Encabezado */}
       <div className="card">
         <div className="flex items-center gap-3">
           <img src="/clinica-logo.png" alt="Logo" width={56} height={56} />
@@ -136,27 +134,26 @@ export default async function PrintQuote({ params }: { params: { id: string } })
               {clinicHeader.university} · {clinicHeader.address}
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Título + datos + botón imprimir */}
-      <div className="card">
-        <div className="row">
-          <div className="col">
-            <div className="text-xl font-semibold">Presupuesto</div>
+          <div className="ml-auto text-right">
+            <div className="text-lg font-semibold">Presupuesto</div>
             <div className="muted">Folio: {(quote as any).folio_code || quote.id}</div>
           </div>
+        </div>
+
+        <div className="row mt-3">
+          <div className="col">
+            <div className="muted">Paciente</div>
+            <div className="mt-1">
+              <b>{patient ? `${patient.last_name}, ${patient.first_name}` : quote.patient_id}</b>
+              {patient?.phone ? ` · ${patient.phone}` : ''}
+              {patient?.email ? ` · ${patient.email}` : ''}
+            </div>
+          </div>
+
           <div className="col right">
             <div><b>Fecha:</b> {fmtDateTimeMX(quote.created_at)}</div>
             <div><b>Vigencia:</b> {fmtDateOnlyMX(quote.valid_until)}</div>
           </div>
-        </div>
-
-        <div className="mt-2">
-          <b>Paciente:</b>{' '}
-          {patient ? `${patient.last_name}, ${patient.first_name}` : quote.patient_id}
-          {patient?.phone ? ` · ${patient.phone}` : ''}
-          {patient?.email ? ` · ${patient.email}` : ''}
         </div>
 
         <div className="no-print mt-3">
@@ -169,20 +166,22 @@ export default async function PrintQuote({ params }: { params: { id: string } })
         <table>
           <thead>
             <tr>
-              <th style={{width:'55%'}}>Servicio</th>
-              <th style={{width:'15%'}}>Cantidad</th>
-              <th style={{width:'15%'}}>Unitario</th>
-              <th style={{width:'15%'}}>Descuento</th>
-              <th style={{width:'15%'}} className="right">Total</th>
+              <th style={{ width: '45%' }}>Servicio</th>
+              <th style={{ width: '15%' }}>Cantidad</th>
+              <th style={{ width: '15%' }}>Unitario</th>
+              <th style={{ width: '15%' }}>Descuento</th>
+              <th style={{ width: '10%' }} className="right">Total</th>
             </tr>
           </thead>
+
           <tbody>
             {(items || []).map((it) => {
               const name = (it.concept ?? it.description ?? '').toString() || '—'
               const qty = Number(it.quantity || 0)
               const unit = Number(it.unit_price || 0)
-              const dsc = Number((it as any).discount || 0)
+              const dsc = Number(it.discount || 0)
               const line = Math.max(0, qty * unit - dsc)
+
               return (
                 <tr key={it.id}>
                   <td>{name}</td>
@@ -193,10 +192,12 @@ export default async function PrintQuote({ params }: { params: { id: string } })
                 </tr>
               )
             })}
+
             {(!items || items.length === 0) && (
               <tr><td className="muted" colSpan={5}>Sin partidas.</td></tr>
             )}
           </tbody>
+
           <tfoot>
             <tr className="totals"><td colSpan={4} className="right">Subtotal</td><td className="right">${itemsSubtotal.toFixed(2)}</td></tr>
             <tr className="totals"><td colSpan={4} className="right">Descuento general</td><td className="right">-${discount.toFixed(2)}</td></tr>
@@ -209,15 +210,13 @@ export default async function PrintQuote({ params }: { params: { id: string } })
       {/* Términos + firma */}
       <div className="card">
         <div><b>Condiciones de pago / Términos</b></div>
-        <div style={{whiteSpace:'pre-wrap', marginTop:6}}>{quote.terms || '—'}</div>
+        <div style={{ whiteSpace: 'pre-wrap', marginTop: 6 }}>{quote.terms || '—'}</div>
 
         <div className="row mt-4">
           <div className="col">
             <div className="muted">Firma de aceptación del paciente</div>
             <div className="sig">
-              {signatureUrl
-                ? <img src={signatureUrl} style={{maxHeight:110}} />
-                : <span className="muted">Sin firma</span>}
+              {signatureUrl ? <img src={signatureUrl} style={{ maxHeight: 110 }} /> : <span className="muted">Sin firma</span>}
             </div>
           </div>
           <div className="col">
