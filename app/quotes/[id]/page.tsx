@@ -828,7 +828,7 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
       {/* Firma */}
       <section className="bg-white rounded-2xl shadow p-5 space-y-3">
         <h3 className="text-base font-semibold">Firma</h3>
-        <SignaturePadKit quoteId={q.id} />
+        <SignaturePadKit patientId={q.patient_id} consentId={`quote-${q.id}`} />
       </section>
 
       <div className="flex items-center gap-3">
