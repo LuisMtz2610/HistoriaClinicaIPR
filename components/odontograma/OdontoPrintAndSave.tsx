@@ -1,13 +1,33 @@
 'use client';
 
+/**
+ * Change Summary:
+ * - Fix TS noImplicitAny errors by typing canvas.toBlob callback param as (b: Blob | null)
+ * - Handle null Blob safely (reject with an Error)
+ * - Remove any/unsafe SVG rect access; use getBoundingClientRect() directly
+ */
+
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
 type Props = {
   patientId: string;
-  targetSelector: string;        // p.ej. '#odontograma-print-area'
-  buttonClassName?: string;      // p.ej. 'btn ml-auto'
+  targetSelector: string; // p.ej. '#odontograma-print-area'
+  buttonClassName?: string; // p.ej. 'btn ml-auto'
 };
+
+async function canvasToWebP(canvas: HTMLCanvasElement, quality = 0.95): Promise<Blob> {
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b: Blob | null) => {
+        if (!b) return reject(new Error('No se pudo generar la imagen (toBlob devolvió null).'));
+        resolve(b);
+      },
+      'image/webp',
+      quality
+    );
+  });
+}
 
 export default function OdontoPrintAndSave({
   patientId,
@@ -26,19 +46,22 @@ export default function OdontoPrintAndSave({
       img.decoding = 'sync';
       await new Promise<void>((res, rej) => {
         img.onload = () => res();
-        img.onerror = (e) => rej(e);
+        img.onerror = () => rej(new Error('No se pudo cargar el SVG como imagen.'));
         img.src = url;
       });
+
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, w);
       canvas.height = Math.max(1, h);
-      const ctx = canvas.getContext('2d')!;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('No se pudo obtener contexto 2D del canvas.');
+
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      return await new Promise<Blob>((resolve) => {
-        canvas.toBlob((b) => resolve(b!), 'image/webp', 0.95);
-      });
+
+      return await canvasToWebP(canvas, 0.95);
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -48,23 +71,29 @@ export default function OdontoPrintAndSave({
     const canvas = document.createElement('canvas');
     const w = imgEl.naturalWidth || imgEl.width || 1400;
     const h = imgEl.naturalHeight || imgEl.height || 900;
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d')!;
+
+    canvas.width = Math.max(1, w);
+    canvas.height = Math.max(1, h);
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('No se pudo obtener contexto 2D del canvas.');
+
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(imgEl, 0, 0, w, h);
-    return await new Promise<Blob>((resolve) => {
-      canvas.toBlob((b) => resolve(b!), 'image/webp', 0.95);
-    });
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
+
+    return await canvasToWebP(canvas, 0.95);
   }
 
   async function htmlToWebP(root: HTMLElement): Promise<Blob> {
     try {
-      const html2canvas = (await import('html2canvas')).default;
+      const html2canvas = (await import('html2canvas')).default as unknown as (
+        el: HTMLElement,
+        opts: { backgroundColor: string; scale: number }
+      ) => Promise<HTMLCanvasElement>;
+
       const canvas = await html2canvas(root, { backgroundColor: '#ffffff', scale: 2 });
-      return await new Promise<Blob>((resolve) => {
-        canvas.toBlob((b) => resolve(b!), 'image/webp', 0.95);
-      });
+      return await canvasToWebP(canvas, 0.95);
     } catch {
       throw new Error(
         'No se pudo capturar el odontograma (no es SVG ni IMG). Instala "html2canvas" o usa un <svg>/<img>.'
@@ -78,7 +107,7 @@ export default function OdontoPrintAndSave({
 
     const svg = el.querySelector('svg');
     if (svg) {
-      const rect = (svg as any).getBoundingClientRect?.() || { width: 1400, height: 900 };
+      const rect = svg.getBoundingClientRect();
       const svgStr = new XMLSerializer().serializeToString(svg);
       return await svgStringToWebP(svgStr, Math.ceil(rect.width || 1400), Math.ceil(rect.height || 900));
     }
@@ -107,6 +136,7 @@ export default function OdontoPrintAndSave({
 
       const fileName = `snapshot-${Date.now()}.webp`;
       const storagePath = `odontograms/${patientId}/${fileName}`;
+
       const up = await supabase.storage.from('odontograms').upload(storagePath, blob, {
         contentType: 'image/webp',
         upsert: false,
@@ -127,8 +157,9 @@ export default function OdontoPrintAndSave({
 
       setNewId(ins.data.id);
       window.print();
-    } catch (e: any) {
-      alert(e.message || String(e));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(msg);
     } finally {
       setSaving(false);
     }
@@ -147,3 +178,10 @@ export default function OdontoPrintAndSave({
     </div>
   );
 }
+
+/**
+ * Field Map / Data Sources:
+ * - Reads latest odontogram id from: public.odontograms (patient_id)
+ * - Uploads snapshot to: storage bucket 'odontograms' path odontograms/{patientId}/snapshot-*.webp
+ * - Inserts new record into: public.odontograms (patient_id, image_path, state, note)
+ */
