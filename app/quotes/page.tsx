@@ -11,7 +11,8 @@ type Row = {
   id: string;
   dt: string;
   folio?: string | null;
-  total: number;
+  status?: string | null;
+  total: number; // total FINAL (subtotal - discount + tax)
   paid: number;
   balance: number;
 };
@@ -27,12 +28,26 @@ export default function Page() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
 
+  async function approveQuote(quoteId: string) {
+    if (!confirm('¿Marcar este presupuesto como APROBADO?')) return;
+    const { error } = await supabase
+      .from('quotes')
+      .update({ status: 'aprobado', accepted_at: new Date().toISOString() })
+      .eq('id', quoteId);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    // recarga simple: vuelve a ejecutar el effect
+    window.location.reload();
+  }
+
   useEffect(() => {
     (async () => {
       setLoading(true);
       const { data, error } = await supabase
         .from('quotes')
-        .select("id, created_at, total, patient_id, folio_code, quote_payments(amount), patients(first_name,last_name)")
+        .select("id, created_at, subtotal, discount, tax, total, status, patient_id, folio_code, quote_items(quantity,unit_price,discount), quote_payments(amount), patients(first_name,last_name)")
         .order('created_at', { ascending: false });
 
       if (error) { console.error(error); setLoading(false); return; }
@@ -42,7 +57,23 @@ export default function Page() {
       (data ?? []).forEach((r: any) => {
         const pid: string | null = r.patient_id ?? null;
         const pat: Pat = r.patients ?? null;
-        const total = Number(r.total) || 0;
+                const subtotal = r.subtotal === null || r.subtotal === undefined ? null : Number(r.subtotal);
+        const discount = Number(r.discount ?? 0) || 0; // descuento GENERAL del encabezado
+        const tax = Number(r.tax ?? 0) || 0;
+
+        // Subtotal REAL por partidas: qty*unit - discount (por partida). NO confiar en quotes.subtotal ni quote_items.line_total.
+        const itemsSubtotal =
+          Array.isArray(r.quote_items) && r.quote_items.length
+            ? r.quote_items.reduce((acc: number, it: any) => {
+                const qty = Number(it.quantity || 0);
+                const unit = Number(it.unit_price || 0);
+                const dsc = Number(it.discount || 0);
+                const line = Math.max(0, qty * unit - dsc);
+                return acc + (isFinite(line) ? line : 0);
+              }, 0)
+            : subtotal;
+
+        const total = itemsSubtotal !== null ? (itemsSubtotal - discount + tax) : (Number(r.total) || 0);
         const paid = (r.quote_payments ?? []).reduce((a:number,p:any)=>a+(Number(p.amount)||0),0);
         const balance = total - paid;
 
@@ -50,6 +81,7 @@ export default function Page() {
           id: r.id,
           dt: r.created_at ?? new Date().toISOString(),
           folio: r.folio_code ?? null,
+          status: r.status ?? null,
           total, paid, balance
         };
 
@@ -79,7 +111,7 @@ export default function Page() {
     })();
   }, []);
 
-  const fmt = useMemo(() => new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }), []);
+  const fmt = useMemo(() => new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Mexico_City' }), []);
   const money = useMemo(()=>new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'}),[]);
 
   return (
@@ -125,7 +157,14 @@ export default function Page() {
                 <tbody>
                   {g.rows.map(r => (
                     <tr key={r.id}>
-                      <td className="border px-2 py-1">{r.folio ?? ('QUO-' + r.id.slice(0,8))}</td>
+                      <td className="border px-2 py-1">
+                        <div className="flex items-center gap-2">
+                          <span>{r.folio ?? ('QUO-' + r.id.slice(0,8))}</span>
+                          {r.status === 'aprobado' && (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Aprobado</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="border px-2 py-1">{fmt.format(new Date(r.dt))}</td>
                       <td className="border px-2 py-1 text-right">{money.format(r.total)}</td>
                       <td className="border px-2 py-1 text-right">{money.format(r.paid)}</td>
@@ -133,6 +172,14 @@ export default function Page() {
                       <td className="border px-2 py-1 whitespace-nowrap">
                         <Link href={`/quotes/${r.id}`} className="mr-3 text-blue-600">Abrir</Link>
                         <Link href={`/quotes/${r.id}/print`} className="text-blue-600">Imprimir</Link>
+                        {r.status !== 'aprobado' && (
+                          <button
+                            onClick={() => approveQuote(r.id)}
+                            className="ml-3 text-emerald-700 hover:underline"
+                          >
+                            Aprobar
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

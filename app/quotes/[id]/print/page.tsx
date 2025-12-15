@@ -10,6 +10,7 @@ type Item = {
   description?: string | null
   quantity: number
   unit_price: number
+  discount?: number | null
   line_total: number
   notes?: string | null
 }
@@ -23,7 +24,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
   // Presupuesto
   const { data: quote, error: qErr } = await sb
     .from('quotes')
-    .select('id, patient_id, created_at, valid_until, subtotal, discount, tax, total, terms, signature_path')
+    .select('id, folio_code, patient_id, created_at, valid_until, discount, tax, terms, signature_path')
     .eq('id', params.id)
     .single()
   if (qErr || !quote) {
@@ -42,7 +43,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
   {
     const a = await sb
       .from('quote_items')
-      .select('id, concept, description, quantity, unit_price, line_total, notes')
+      .select('id, concept, description, quantity, unit_price, discount, line_total, notes')
       .eq('quote_id', params.id)
       .order('id', { ascending: true })
     if (!a.error) {
@@ -50,7 +51,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
     } else {
       const b = await sb
         .from('quote_items')
-        .select('id, description, quantity, unit_price, line_total, notes')
+        .select('id, description, quantity, unit_price, discount, line_total, notes')
         .eq('quote_id', params.id)
         .order('id', { ascending: true })
       if (b.error) {
@@ -61,11 +62,16 @@ export default async function PrintQuote({ params }: { params: { id: string } })
   }
 
   // Totales
-  const itemsSubtotal =
-    (items || []).reduce((s, it) => s + Number(it.line_total ?? (Number(it.quantity || 0) * Number(it.unit_price || 0))), 0)
+  const itemsSubtotal = (items || []).reduce((s, it) => {
+    const qty = Number(it.quantity || 0)
+    const unit = Number(it.unit_price || 0)
+    const dsc = Number((it as any).discount || 0)
+    const line = Math.max(0, qty * unit - dsc)
+    return s + (isFinite(line) ? line : 0)
+  }, 0)
   const discount = Number(quote.discount || 0)
   const tax = Number(quote.tax || 0)
-  const total = Number(quote.total ?? (itemsSubtotal - discount + tax))
+  const total = Number(itemsSubtotal - discount + tax)
 
   // Firma (si existe)
   const signatureUrl = quote.signature_path
@@ -82,7 +88,19 @@ export default async function PrintQuote({ params }: { params: { id: string } })
     address: 'Deportivo Veracruzano No 29, Fracc. Galaxia, C.P. 94294, Boca del Río, Veracruz',
   }
 
-  const fmtDate = (d?: string | null) => (d ? new Date(d).toLocaleDateString() : '—')
+  const fmtDateTimeMX = (iso?: string | null) =>
+    iso
+      ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Mexico_City' }).format(new Date(iso))
+      : '—'
+
+  const fmtDateOnlyMX = (ymd?: string | null) => {
+    if (!ymd) return '—'
+    const [y, m, d] = ymd.split('-').map((x) => Number(x))
+    if (!y || !m || !d) return ymd
+    const dd = String(d).padStart(2, '0')
+    const mm = String(m).padStart(2, '0')
+    return `${dd}/${mm}/${y}`
+  }
 
   return (
     <div className="max-w-[880px] mx-auto my-6 px-4 print:my-0">
@@ -126,11 +144,11 @@ export default async function PrintQuote({ params }: { params: { id: string } })
         <div className="row">
           <div className="col">
             <div className="text-xl font-semibold">Presupuesto</div>
-            <div className="muted">Folio: {quote.id}</div>
+            <div className="muted">Folio: {(quote as any).folio_code || quote.id}</div>
           </div>
           <div className="col right">
-            <div><b>Fecha:</b> {fmtDate(quote.created_at)}</div>
-            <div><b>Vigencia:</b> {fmtDate(quote.valid_until)}</div>
+            <div><b>Fecha:</b> {fmtDateTimeMX(quote.created_at)}</div>
+            <div><b>Vigencia:</b> {fmtDateOnlyMX(quote.valid_until)}</div>
           </div>
         </div>
 
@@ -142,7 +160,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
         </div>
 
         <div className="no-print mt-3">
-          <PrintActions />
+          <PrintActions quoteId={quote.id} />
         </div>
       </div>
 
@@ -154,6 +172,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
               <th style={{width:'55%'}}>Servicio</th>
               <th style={{width:'15%'}}>Cantidad</th>
               <th style={{width:'15%'}}>Unitario</th>
+              <th style={{width:'15%'}}>Descuento</th>
               <th style={{width:'15%'}} className="right">Total</th>
             </tr>
           </thead>
@@ -162,25 +181,27 @@ export default async function PrintQuote({ params }: { params: { id: string } })
               const name = (it.concept ?? it.description ?? '').toString() || '—'
               const qty = Number(it.quantity || 0)
               const unit = Number(it.unit_price || 0)
-              const line = Number(it.line_total ?? qty * unit)
+              const dsc = Number((it as any).discount || 0)
+              const line = Math.max(0, qty * unit - dsc)
               return (
                 <tr key={it.id}>
                   <td>{name}</td>
                   <td>{qty.toFixed(2)}</td>
                   <td>${unit.toFixed(2)}</td>
+                  <td>${dsc.toFixed(2)}</td>
                   <td className="right">${line.toFixed(2)}</td>
                 </tr>
               )
             })}
             {(!items || items.length === 0) && (
-              <tr><td className="muted" colSpan={4}>Sin partidas.</td></tr>
+              <tr><td className="muted" colSpan={5}>Sin partidas.</td></tr>
             )}
           </tbody>
           <tfoot>
-            <tr className="totals"><td colSpan={3} className="right">Subtotal</td><td className="right">${itemsSubtotal.toFixed(2)}</td></tr>
-            <tr className="totals"><td colSpan={3} className="right">Descuento</td><td className="right">-${discount.toFixed(2)}</td></tr>
-            <tr className="totals"><td colSpan={3} className="right">Impuestos</td><td className="right">${tax.toFixed(2)}</td></tr>
-            <tr className="totals"><td colSpan={3} className="right">Total</td><td className="right">${total.toFixed(2)}</td></tr>
+            <tr className="totals"><td colSpan={4} className="right">Subtotal</td><td className="right">${itemsSubtotal.toFixed(2)}</td></tr>
+            <tr className="totals"><td colSpan={4} className="right">Descuento general</td><td className="right">-${discount.toFixed(2)}</td></tr>
+            <tr className="totals"><td colSpan={4} className="right">Impuestos</td><td className="right">${tax.toFixed(2)}</td></tr>
+            <tr className="totals"><td colSpan={4} className="right">Total</td><td className="right">${total.toFixed(2)}</td></tr>
           </tfoot>
         </table>
       </div>
@@ -201,7 +222,7 @@ export default async function PrintQuote({ params }: { params: { id: string } })
           </div>
           <div className="col">
             <div className="muted">Fecha de impresión</div>
-            <div className="mt-2">{new Date().toLocaleString()}</div>
+            <div className="mt-2">{fmtDateTimeMX(new Date().toISOString())}</div>
           </div>
         </div>
       </div>
