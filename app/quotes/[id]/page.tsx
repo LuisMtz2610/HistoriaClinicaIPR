@@ -238,6 +238,8 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
         const out: Suggestion[] = []
         const seen = new Set<string>()
 
+        if (cat.error) console.warn('services_catalog query:', cat.error.message)
+
         if (!cat.error) {
           for (const r of (cat.data as any[]) || []) {
             const name = String(r.name || '').trim()
@@ -254,6 +256,8 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
             })
           }
         }
+
+        if (hist.error) console.warn('quote_items suggest query:', hist.error.message)
 
         if (!hist.error) {
           for (const r of (hist.data as any[]) || []) {
@@ -334,11 +338,9 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
       serviceId = ensured?.id ?? null
     }
 
-    const line_total = Math.max(0, quantity * unit_price - discount)
-
     const { error } = await supabase
       .from('quote_items')
-      .insert({ quote_id: id, description, quantity, unit_price, discount, line_total, service_code: serviceId })
+      .insert({ quote_id: id, description, quantity, unit_price, discount, service_code: serviceId })
 
     if (error) {
       alert(error.message)
@@ -386,11 +388,9 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
       serviceId = ensured?.id ?? null
     }
 
-    const line_total = Math.max(0, quantity * unit_price - discount)
-
     const { error } = await supabase
       .from('quote_items')
-      .update({ description, quantity, unit_price, discount, line_total, service_code: serviceId })
+      .update({ description, quantity, unit_price, discount, service_code: serviceId })
       .eq('id', editingId)
 
     if (error) {
