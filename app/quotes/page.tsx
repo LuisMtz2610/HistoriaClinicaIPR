@@ -16,6 +16,9 @@ type Row = {
   balance: number;
 };
 
+const APPROVED_ALIASES = new Set(['aprobado','aprobada','approved','aceptado','aceptada','accepted']);
+const isApprovedStatus = (s: unknown) => APPROVED_ALIASES.has(String(s ?? '').toLowerCase());
+
 type Group = {
   patient_id: string | null;
   patient: Pat;
@@ -120,20 +123,34 @@ export default function Page() {
   }, []);
 
   async function approveQuote(id: string) {
-    const { error } = await supabase
-      .from('quotes')
-      .update({ status: 'aprobado' })
-      .eq('id', id);
+    const candidates = ['aprobado', 'aprobada', 'approved', 'aceptado', 'aceptada', 'accepted']
+    let lastMsg: string | null = null
 
-    if (error) {
-      alert('No se pudo aprobar: ' + error.message);
-      return;
+    for (const status of candidates) {
+      const { error } = await supabase.from('quotes').update({ status }).eq('id', id)
+      if (!error) {
+        await load()
+        return
+      }
+
+      lastMsg = error.message
+      if (!/invalid input value for enum/i.test(error.message)) {
+        alert('No se pudo aprobar: ' + error.message)
+        return
+      }
     }
 
-    await load();
+    alert(
+      'No se pudo aprobar porque el valor permitido del enum quote_status no coincide con el front.
+' +
+        'Corre en Supabase: select unnest(enum_range(NULL::quote_status));
+' +
+        'Último error: ' +
+        (lastMsg || 'desconocido')
+    )
   }
 
-  return (
+return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <h1 className="page-title">Presupuestos</h1>
@@ -190,7 +207,7 @@ export default function Page() {
                     <tr key={r.id}>
                       <td className="border px-2 py-1">
                         {r.folio ?? 'QUO-' + r.id.slice(0, 8)}
-                        {r.status === 'aprobado' && (
+                        {isApprovedStatus(r.status) && (
                           <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
                             Aprobado
                           </span>
@@ -209,7 +226,7 @@ export default function Page() {
                         <Link href={`/quotes/${r.id}/print`} className="mr-3 text-blue-600">
                           Imprimir
                         </Link>
-                        {r.status !== 'aprobado' && (
+                        {!isApprovedStatus(r.status) && (
                           <button
                             type="button"
                             onClick={() => approveQuote(r.id)}

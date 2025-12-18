@@ -3,11 +3,12 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import ShareWhatsAppButtonKit from '@/components/kit/ShareWhatsAppButtonKit'
 import SignaturePadKit from '@/components/kit/SignaturePadKit'
 
-type QuoteStatus = 'borrador' | 'aprobado' | string
+type QuoteStatus = 'borrador' | string
 
 type Quote = {
   id: string
@@ -53,6 +54,11 @@ type Suggestion = {
   id?: string
   name: string
   unit_price: number
+}
+
+const APPROVED_ALIASES = new Set(['aprobado', 'aprobada', 'approved', 'aceptado', 'aceptada', 'accepted']);
+function isApprovedStatus(s: unknown) {
+  return APPROVED_ALIASES.has(String(s ?? '').toLowerCase());
 }
 
 function formatDateTimeMX(iso: string | null | undefined) {
@@ -108,6 +114,17 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
   const suggestRef = useRef<HTMLDivElement | null>(null)
+  const suggestDropdownRef = useRef<HTMLDivElement | null>(null)
+  const svcInputRef = useRef<HTMLInputElement | null>(null)
+  const [suggestAnchor, setSuggestAnchor] = useState<DOMRect | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  function updateSuggestAnchor() {
+    const el = svcInputRef.current
+    if (!el) return
+    setSuggestAnchor(el.getBoundingClientRect())
+  }
+
 
   // Edición de partida
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -197,18 +214,38 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
   const paidAmount = payments.reduce((s, p) => s + Number(p.amount || 0), 0)
   const balance = computedTotal - paidAmount
 
+  useEffect(() => { setMounted(true) }, [])
+
   // Click afuera del autocomplete
   useEffect(() => {
-    function onDown(e: MouseEvent) {
-      const el = suggestRef.current
-      if (!el) return
-      if (!el.contains(e.target as Node)) setShowSuggest(false)
+    function onDown(e: MouseEvent | TouchEvent) {
+      const t = e.target as Node
+      if (suggestRef.current?.contains(t)) return
+      if (suggestDropdownRef.current?.contains(t)) return
+      setShowSuggest(false)
     }
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('touchstart', onDown)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('touchstart', onDown)
+    }
   }, [])
 
-  // Buscar sugerencias (Opción A: catálogo primero + histórico)
+// Mantener el dropdown alineado al input (scroll/resize)
+  useEffect(() => {
+    if (!showSuggest) return
+    updateSuggestAnchor()
+    const onMove = () => updateSuggestAnchor()
+    window.addEventListener('scroll', onMove, true)
+    window.addEventListener('resize', onMove)
+    return () => {
+      window.removeEventListener('scroll', onMove, true)
+      window.removeEventListener('resize', onMove)
+    }
+  }, [showSuggest, svcQuery])
+
+// Buscar sugerencias (Opción A: catálogo primero + histórico)
   useEffect(() => {
     if (!showSuggest) return
 
@@ -467,18 +504,35 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
 
   async function approveQuote() {
     if (!q) return
-    const { error } = await supabase
-      .from('quotes')
-      .update({ status: 'aprobado' })
-      .eq('id', q.id)
-    if (error) {
-      alert(error.message)
-      return
+
+    const candidates = ['aprobado', 'aprobada', 'approved', 'aceptado', 'aceptada', 'accepted']
+    let lastMsg: string | null = null
+
+    for (const status of candidates) {
+      const { error } = await supabase.from('quotes').update({ status }).eq('id', q.id)
+      if (!error) {
+        setQ({ ...q, status } as any)
+        return
+      }
+
+      lastMsg = error.message
+      if (!/invalid input value for enum/i.test(error.message)) {
+        alert(error.message)
+        return
+      }
     }
-    setQ({ ...q, status: 'aprobado' } as any)
+
+    alert(
+      'No se pudo aprobar porque el valor permitido del enum quote_status no coincide con el front.
+' +
+        'Corre en Supabase: select unnest(enum_range(NULL::quote_status));
+' +
+        'Último error: ' +
+        (lastMsg || 'desconocido')
+    )
   }
 
-  // -------- Pagos --------
+// -------- Pagos --------
   async function addPayment(e: React.FormEvent) {
     e.preventDefault()
     const f = e.target as any
@@ -536,7 +590,7 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
           <Link href={`/quotes/${q.id}/print`} className="px-3 py-2 rounded-xl bg-gray-800 text-white">
             Imprimir
           </Link>
-          {q.status !== 'aprobado' ? (
+          {!isApprovedStatus(q.status) ? (
             <button onClick={approveQuote} className="px-3 py-2 rounded-xl bg-blue-600 text-white">
               Marcar aprobado
             </button>
@@ -605,20 +659,26 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
           <form onSubmit={addItem} className="grid grid-cols-1 md:grid-cols-12 gap-3">
             <div className="md:col-span-6 relative">
               <input
+                ref={svcInputRef}
                 value={svcQuery}
                 onChange={(e) => {
                   const v = e.target.value
                   setSvcQuery(v)
                   setSelectedServiceId(null)
                   setShowSuggest(true)
+                  updateSuggestAnchor()
                 }}
-                onFocus={() => setShowSuggest(true)}
+                onFocus={() => { setShowSuggest(true); updateSuggestAnchor() }}
                 placeholder="Servicio / concepto"
                 className="w-full border rounded-xl px-3 py-2"
               />
 
-              {showSuggest && (
-                <div className="absolute z-20 mt-1 w-full bg-white border rounded-xl shadow overflow-hidden max-h-72 overflow-auto">
+              {mounted && showSuggest && suggestAnchor && createPortal(
+                <div
+                  ref={suggestDropdownRef}
+                  style={{ position: 'fixed', left: suggestAnchor.left, top: suggestAnchor.bottom + 6, width: suggestAnchor.width, zIndex: 9999 }}
+                  className="bg-white border rounded-xl shadow overflow-hidden max-h-72 overflow-auto"
+                >
                   {suggestions.length === 0 ? (
                     <div className="px-3 py-2 text-sm text-gray-500">
                       Sin resultados. Escribe para buscar en catálogo/histórico o agrega el servicio tal cual.
@@ -628,7 +688,7 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
                       <button
                         type="button"
                         key={s.key}
-                        onClick={() => pickSuggestion(s)}
+                        onMouseDown={(e) => { e.preventDefault(); pickSuggestion(s) }}
                         className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between gap-3"
                       >
                         <span className="truncate">
@@ -647,7 +707,8 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
                       </button>
                     ))
                   )}
-                </div>
+                </div>,
+                document.body
               )}
             </div>
 
