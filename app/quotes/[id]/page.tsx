@@ -112,6 +112,7 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
   const [showSuggest, setShowSuggest] = useState(false)
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
+  const [savingCatalog, setSavingCatalog] = useState(false)
   const suggestRef = useRef<HTMLDivElement | null>(null)
   const suggestDropdownRef = useRef<HTMLDivElement | null>(null)
   const svcInputRef = useRef<HTMLInputElement | null>(null)
@@ -365,6 +366,31 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
     setAddUnit(Number(s.unit_price || 0))
     setSelectedServiceId(s.source === 'catalog' ? s.id || null : null)
     setShowSuggest(false)
+  async function createServiceFromCurrent() {
+    const name = svcQuery.trim()
+    if (!name) return
+
+    try {
+      setSavingCatalog(true)
+      const ensured = await ensureServiceInCatalog(name, Number(addUnit || 0))
+      if (!ensured?.id) {
+        alert('No se pudo dar de alta el servicio en el catálogo. (Revisa RLS/policies en services_catalog).')
+        return
+      }
+      setSelectedServiceId(ensured.id)
+      setShowSuggest(false)
+      // deja el nombre y unitario como están, para que el usuario solo presione "Agregar"
+    } finally {
+      setSavingCatalog(false)
+    }
+  }
+
+  function hasExactCatalogMatch() {
+    const qv = svcQuery.trim().toLowerCase()
+    if (!qv) return false
+    return suggestions.some((s) => s.source === 'catalog' && s.name.trim().toLowerCase() === qv)
+  }
+
   }
 
   // -------- Partidas --------
@@ -672,9 +698,43 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
               {mounted && showSuggest && suggestAnchor && (
                 <div
                   ref={suggestDropdownRef}
-                  style={{ position: 'fixed', left: suggestAnchor.left, top: suggestAnchor.bottom + 6, width: suggestAnchor.width, zIndex: 9999 }}
-                  className="bg-white border rounded-xl shadow overflow-hidden max-h-72 overflow-auto"
+                  style={{
+                    position: 'fixed',
+                    left: (() => {
+                      const w = suggestAnchor.width
+                      const maxLeft = window.innerWidth - w - 8
+                      return Math.max(8, Math.min(suggestAnchor.left, maxLeft))
+                    })(),
+                    top: (() => {
+                      const maxH = 280
+                      const bottomSpace = window.innerHeight - suggestAnchor.bottom
+                      return bottomSpace < maxH
+                        ? Math.max(8, suggestAnchor.top - 6 - maxH)
+                        : suggestAnchor.bottom + 6
+                    })(),
+                    width: suggestAnchor.width,
+                    zIndex: 99999,
+                  }}
+                  className="bg-white border rounded-xl shadow overflow-hidden max-h-[280px] overflow-auto"
                 >
+                  {/* Acción: dar de alta en catálogo (aunque no haya resultados) */}
+                  {svcQuery.trim() && !hasExactCatalogMatch() && (
+                    <button
+                      type="button"
+                      disabled={savingCatalog}
+                      onMouseDown={(e) => { e.preventDefault(); void createServiceFromCurrent() }}
+                      className="w-full text-left px-3 py-2 border-b hover:bg-gray-50 flex items-center justify-between gap-3"
+                    >
+                      <span className="truncate">
+                        ➕ Dar de alta en catálogo: <span className="font-medium">"{svcQuery.trim()}"</span>
+                        <span className="ml-2 text-xs text-gray-500">(se guardará con el unitario actual)</span>
+                      </span>
+                      <span className="text-sm text-gray-700">
+                        {savingCatalog ? 'Guardando…' : money.format(Number(addUnit || 0))}
+                      </span>
+                    </button>
+                  )}
+
                   {suggestions.length === 0 ? (
                     <div className="px-3 py-2 text-sm text-gray-500">
                       Sin resultados. Escribe para buscar en catálogo/histórico o agrega el servicio tal cual.
