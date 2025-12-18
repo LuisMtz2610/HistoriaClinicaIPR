@@ -210,30 +210,39 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
 
   // Buscar sugerencias (Opción A: catálogo primero + histórico)
   useEffect(() => {
+    if (!showSuggest) return
+
     const qv = svcQuery.trim()
-    if (!qv) {
-      setSuggestions([])
-      setShowSuggest(false)
-      setSelectedServiceId(null)
-      return
-    }
 
     const t = setTimeout(async () => {
       try {
-        const [cat, hist] = await Promise.all([
-          supabase
-            .from('services_catalog')
-            .select('id, name, unit_price')
-            .ilike('name', `%${qv}%`)
-            .order('name')
-            .limit(8),
-          supabase
-            .from('quote_items')
-            .select('description, unit_price')
-            .ilike('description', `%${qv}%`)
-            .order('description')
-            .limit(8),
-        ])
+        const catQuery = qv
+          ? supabase
+              .from('services_catalog')
+              .select('id, name, unit_price')
+              .ilike('name', `%${qv}%`)
+              .order('name')
+              .limit(12)
+          : supabase
+              .from('services_catalog')
+              .select('id, name, unit_price')
+              .order('name')
+              .limit(20)
+
+        const histQuery = qv
+          ? supabase
+              .from('quote_items')
+              .select('description, unit_price')
+              .ilike('description', `%${qv}%`)
+              .order('description')
+              .limit(12)
+          : supabase
+              .from('quote_items')
+              .select('description, unit_price')
+              .order('id', { ascending: false })
+              .limit(20)
+
+        const [cat, hist] = await Promise.all([catQuery, histQuery])
 
         const out: Suggestion[] = []
         const seen = new Set<string>()
@@ -276,14 +285,14 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
         }
 
         setSuggestions(out)
-        setShowSuggest(true)
       } catch {
         // silencioso
       }
     }, 180)
 
     return () => clearTimeout(t)
-  }, [svcQuery])
+  }, [svcQuery, showSuggest])
+
 
   async function ensureServiceInCatalog(name: string, unit_price: number) {
     const clean = name.trim()
@@ -598,32 +607,46 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
               <input
                 value={svcQuery}
                 onChange={(e) => {
-                  setSvcQuery(e.target.value)
+                  const v = e.target.value
+                  setSvcQuery(v)
                   setSelectedServiceId(null)
+                  setShowSuggest(true)
                 }}
-                onFocus={() => svcQuery.trim() && setShowSuggest(true)}
+                onFocus={() => setShowSuggest(true)}
                 placeholder="Servicio / concepto"
                 className="w-full border rounded-xl px-3 py-2"
               />
 
-              {showSuggest && suggestions.length > 0 && (
-                <div className="absolute z-20 mt-1 w-full bg-white border rounded-xl shadow overflow-hidden">
-                  {suggestions.map((s) => (
-                    <button
-                      type="button"
-                      key={s.key}
-                      onClick={() => pickSuggestion(s)}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between gap-3"
-                    >
-                      <span className="truncate">
-                        {s.name}{' '}
-                        <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${s.source === 'catalog' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-50 text-gray-600 border border-gray-200'}`}>
-                          {s.source === 'catalog' ? 'Catálogo' : 'Histórico'}
+              {showSuggest && (
+                <div className="absolute z-20 mt-1 w-full bg-white border rounded-xl shadow overflow-hidden max-h-72 overflow-auto">
+                  {suggestions.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-gray-500">
+                      Sin resultados. Escribe para buscar en catálogo/histórico o agrega el servicio tal cual.
+                    </div>
+                  ) : (
+                    suggestions.map((s) => (
+                      <button
+                        type="button"
+                        key={s.key}
+                        onClick={() => pickSuggestion(s)}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center justify-between gap-3"
+                      >
+                        <span className="truncate">
+                          {s.name}{' '}
+                          <span
+                            className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+                              s.source === 'catalog'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-gray-50 text-gray-600 border border-gray-200'
+                            }`}
+                          >
+                            {s.source === 'catalog' ? 'Catálogo' : 'Histórico'}
+                          </span>
                         </span>
-                      </span>
-                      <span className="text-sm text-gray-700">{money.format(s.unit_price)}</span>
-                    </button>
-                  ))}
+                        <span className="text-sm text-gray-700">{money.format(s.unit_price)}</span>
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </div>
