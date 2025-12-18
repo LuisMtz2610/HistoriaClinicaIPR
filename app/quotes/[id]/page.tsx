@@ -366,6 +366,8 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
     setAddUnit(Number(s.unit_price || 0))
     setSelectedServiceId(s.source === 'catalog' ? s.id || null : null)
     setShowSuggest(false)
+  }
+
   async function createServiceFromCurrent() {
     const name = svcQuery.trim()
     if (!name) return
@@ -389,8 +391,6 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
     const qv = svcQuery.trim().toLowerCase()
     if (!qv) return false
     return suggestions.some((s) => s.source === 'catalog' && s.name.trim().toLowerCase() === qv)
-  }
-
   }
 
   // -------- Partidas --------
