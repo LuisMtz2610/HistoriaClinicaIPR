@@ -141,12 +141,9 @@ export default function Page() {
     }
 
     alert(
-      'No se pudo aprobar porque el valor permitido del enum quote_status no coincide con el front.
-' +
-        'Corre en Supabase: select unnest(enum_range(NULL::quote_status));
-' +
-        'Último error: ' +
-        (lastMsg || 'desconocido')
+      `No se pudo aprobar porque el valor permitido del enum quote_status no coincide con el front.
+Corre en Supabase: select unnest(enum_range(NULL::quote_status));
+Último error: ${lastMsg || 'desconocido'}`
     )
   }
 
