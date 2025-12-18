@@ -3,7 +3,6 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import ShareWhatsAppButtonKit from '@/components/kit/ShareWhatsAppButtonKit'
 import SignaturePadKit from '@/components/kit/SignaturePadKit'
@@ -670,7 +669,7 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
                 className="w-full border rounded-xl px-3 py-2"
               />
 
-              {mounted && showSuggest && suggestAnchor && createPortal(
+              {mounted && showSuggest && suggestAnchor && (
                 <div
                   ref={suggestDropdownRef}
                   style={{ position: 'fixed', left: suggestAnchor.left, top: suggestAnchor.bottom + 6, width: suggestAnchor.width, zIndex: 9999 }}
@@ -704,8 +703,7 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
                       </button>
                     ))
                   )}
-                </div>,
-                document.body
+                </div>
               )}
             </div>
 
