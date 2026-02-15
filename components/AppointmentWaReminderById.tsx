@@ -10,7 +10,7 @@ export default function AppointmentWaReminderById({ appointmentId }: Props) {
   const { data, error, isLoading } = useSWR(['appt', appointmentId], async () => {
     const { data, error } = await supabase
       .from('appointments')
-      .select('id, start_at, patients:patient_id (first_name, last_name, phone)')
+      .select('id, starts_at, patients:patient_id (first_name, last_name, phone)')
       .eq('id', appointmentId)
       .maybeSingle()
     if (error) throw error
@@ -28,7 +28,7 @@ export default function AppointmentWaReminderById({ appointmentId }: Props) {
     <AppointmentWhatsAppReminder
       patientName={name}
       patientPhone={phone}
-      whenISO={data.start_at}
+      whenISO={data.starts_at}
       showCloudButton={true}
     />
   )
