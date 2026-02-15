@@ -36,14 +36,14 @@ const CODE_MAP = Object.fromEntries(CODES.map(c => [c.value, c]))
 // Imagen: 770×397 px · dientes entre márgenes laterales ~4.5%
 // Gap central ~2.5% · 8 dientes por cuadrante
 const TOOTH_POS: Record<string, { x: number; y: number }> = {
-  '18': { x:  7.3, y: 30 }, '17': { x: 12.8, y: 30 }, '16': { x: 18.3, y: 30 }, '15': { x: 23.9, y: 30 },
-  '14': { x: 29.4, y: 30 }, '13': { x: 34.9, y: 30 }, '12': { x: 40.5, y: 30 }, '11': { x: 46.0, y: 30 },
-  '21': { x: 54.0, y: 30 }, '22': { x: 59.5, y: 30 }, '23': { x: 65.1, y: 30 }, '24': { x: 70.6, y: 30 },
-  '25': { x: 76.1, y: 30 }, '26': { x: 81.7, y: 30 }, '27': { x: 87.2, y: 30 }, '28': { x: 92.7, y: 30 },
-  '48': { x:  7.3, y: 68 }, '47': { x: 12.8, y: 68 }, '46': { x: 18.3, y: 68 }, '45': { x: 23.9, y: 68 },
-  '44': { x: 29.4, y: 68 }, '43': { x: 34.9, y: 68 }, '42': { x: 40.5, y: 68 }, '41': { x: 46.0, y: 68 },
-  '31': { x: 54.0, y: 68 }, '32': { x: 59.5, y: 68 }, '33': { x: 65.1, y: 68 }, '34': { x: 70.6, y: 68 },
-  '35': { x: 76.1, y: 68 }, '36': { x: 81.7, y: 68 }, '37': { x: 87.2, y: 68 }, '38': { x: 92.7, y: 68 },
+  '18': { x: 11, y: 28 }, '17': { x: 16, y: 28 }, '16': { x: 21, y: 28 }, '15': { x: 26, y: 28 },
+  '14': { x: 31, y: 28 }, '13': { x: 36, y: 28 }, '12': { x: 41, y: 28 }, '11': { x: 46, y: 28 },
+  '21': { x: 54, y: 28 }, '22': { x: 59, y: 28 }, '23': { x: 64, y: 28 }, '24': { x: 69, y: 28 },
+  '25': { x: 74, y: 28 }, '26': { x: 79, y: 28 }, '27': { x: 84, y: 28 }, '28': { x: 89, y: 28 },
+  '48': { x: 11, y: 65 }, '47': { x: 16, y: 65 }, '46': { x: 21, y: 65 }, '45': { x: 26, y: 65 },
+  '44': { x: 31, y: 65 }, '43': { x: 36, y: 65 }, '42': { x: 41, y: 65 }, '41': { x: 46, y: 65 },
+  '31': { x: 54, y: 65 }, '32': { x: 59, y: 65 }, '33': { x: 64, y: 65 }, '34': { x: 69, y: 65 },
+  '35': { x: 74, y: 65 }, '36': { x: 79, y: 65 }, '37': { x: 84, y: 65 }, '38': { x: 89, y: 65 },
 }
 
 type Snapshot = Record<string, Code>
@@ -188,7 +188,7 @@ export default function OdontogramaDxOverlay({ patientId }: { patientId: string 
       const { error } = await supabase.from('odontograms').insert({
         patient_id: patientId,
         state: map,
-        note: null,
+        // note: omitido — Supabase schema cache puede no tener la columna aún
       })
       if (error) throw error
       setSaved(true)
