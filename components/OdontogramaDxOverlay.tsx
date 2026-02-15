@@ -188,7 +188,7 @@ export default function OdontogramaDxOverlay({ patientId }: { patientId: string 
     try {
       const { error } = await supabase.from('odontograms').insert({
         patient_id: patientId,
-        kind: 'initial',
+        kind: 'diagnostico',
         snapshot: map,
       })
       if (error) throw error

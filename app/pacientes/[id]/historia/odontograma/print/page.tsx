@@ -17,7 +17,7 @@ const fetchPatient = async (id: string) => {
 const fetchLastOdo = async (patientId: string) => {
   const { data, error } = await supabase
     .from('odontograms')
-    .select('state, created_at')
+    .select('snapshot, created_at')
     .eq('patient_id', patientId)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -44,7 +44,7 @@ export default function PrintOdontogramaPage(){
   if (p.isLoading || odo.isLoading) return <div className="p-6">Preparando impresión…</div>
   if (p.error) return <div className="p-6 text-red-600">Error cargando paciente</div>
   const patient = p.data
-  const snapshot = (odo.data?.state as Record<string,string>) || {}
+  const snapshot = (odo.data?.snapshot as Record<string,string>) || {}
   const takenAt = odo.data?.created_at ? new Date(odo.data.created_at).toLocaleString() : '—'
   const labelFor = (code: string) => CODE_OPTIONS.find(c=>c.value===code)?.label ?? code ?? '9'
 

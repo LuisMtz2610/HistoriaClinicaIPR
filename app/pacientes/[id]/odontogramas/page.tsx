@@ -40,7 +40,7 @@ export default function Page({ params }: { params: { id: string } }) {
     setSaving(true);
     try {
       const snapshot = JSON.parse(stateText || '{}');
-      await saveOdontogramVersion({ patientId, snapshot, kind: 'initial', svg: svgText, notes: note });
+      await saveOdontogramVersion({ patientId, snapshot, kind: 'evolucion', svg: svgText, notes: note });
       const { data } = await supabase
         .from('odontograms')
         .select('id, created_at, image_path, notes')

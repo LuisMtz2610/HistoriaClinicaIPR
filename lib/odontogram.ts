@@ -32,7 +32,7 @@ export async function svgToWebP(svgString: string, width = 1400, height = 900): 
 export async function saveOdontogramVersion(opts: {
   patientId: string;
   snapshot: any;          // jsonb — estado del odontograma
-  kind?: string;          // odontogram_kind: 'initial' | 'followup' | 'final'
+  kind?: string;          // odontogram_kind: 'diagnostico' | 'evolucion'
   svg?: string | null;    // opcional, sólo para generar la imagen
   notes?: string | null;
   makeSnapshot?: boolean;
@@ -40,7 +40,7 @@ export async function saveOdontogramVersion(opts: {
   storageBucket?: string;
 }) {
   const {
-    patientId, snapshot, kind = 'initial', svg = null, notes = null,
+    patientId, snapshot, kind = 'diagnostico', svg = null, notes = null,
     makeSnapshot = (svg ? true : false),
     snapshotSize = { width: 1400, height: 900 },
     storageBucket = 'odontograms',
