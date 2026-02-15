@@ -39,18 +39,18 @@ export default function OdontogramaDxSelects({ patientId }: { patientId: string 
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
 
-  // Carga último snapshot (usa columna 'state' que es la real en la tabla)
+  // Carga último snapshot
   React.useEffect(() => {
     (async () => {
       setLoading(true)
       const { data, error } = await supabase
         .from('odontograms')
-        .select('state')
+        .select('snapshot')
         .eq('patient_id', patientId)
         .order('created_at', { ascending: false })
         .limit(1)
-      if (!error && data && data[0]?.state) {
-        const snap = data[0].state as Snapshot
+      if (!error && data && data[0]?.snapshot) {
+        const snap = data[0].snapshot as Snapshot
         setMap(prev => ({ ...prev, ...snap })) // completa faltantes con '9'
       }
       setLoading(false)
@@ -68,8 +68,8 @@ export default function OdontogramaDxSelects({ patientId }: { patientId: string 
     try {
       const { error } = await supabase.from('odontograms').insert({
         patient_id: patientId,
-        state: map,          // columna real: state jsonb
-        note: null,
+        kind: 'initial',
+        snapshot: map,
       })
       if (error) throw error
       alert('Odontograma guardado')

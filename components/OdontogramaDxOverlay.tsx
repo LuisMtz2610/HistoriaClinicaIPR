@@ -33,17 +33,18 @@ export const CODES: { value: Code; label: string; color: string; bg: string }[] 
 const CODE_MAP = Object.fromEntries(CODES.map(c => [c.value, c]))
 
 /* ─── Posiciones sobre la imagen (%) ─────────────────────── */
-// Imagen: 770×397 px · dientes entre márgenes laterales ~4.5%
-// Gap central ~2.5% · 8 dientes por cuadrante
+// Calculadas midiendo la imagen 770×397 px con análisis de píxeles.
+// Bordes: izq=87px (11.3%), centro=380px (49.4%), der=675px (87.7%)
+// step_izq ≈ 36.6px · step_der ≈ 36.9px
 const TOOTH_POS: Record<string, { x: number; y: number }> = {
-  '18': { x: 11, y: 28 }, '17': { x: 16, y: 28 }, '16': { x: 21, y: 28 }, '15': { x: 26, y: 28 },
-  '14': { x: 31, y: 28 }, '13': { x: 36, y: 28 }, '12': { x: 41, y: 28 }, '11': { x: 46, y: 28 },
-  '21': { x: 54, y: 28 }, '22': { x: 59, y: 28 }, '23': { x: 64, y: 28 }, '24': { x: 69, y: 28 },
-  '25': { x: 74, y: 28 }, '26': { x: 79, y: 28 }, '27': { x: 84, y: 28 }, '28': { x: 89, y: 28 },
-  '48': { x: 11, y: 65 }, '47': { x: 16, y: 65 }, '46': { x: 21, y: 65 }, '45': { x: 26, y: 65 },
-  '44': { x: 31, y: 65 }, '43': { x: 36, y: 65 }, '42': { x: 41, y: 65 }, '41': { x: 46, y: 65 },
-  '31': { x: 54, y: 65 }, '32': { x: 59, y: 65 }, '33': { x: 64, y: 65 }, '34': { x: 69, y: 65 },
-  '35': { x: 74, y: 65 }, '36': { x: 79, y: 65 }, '37': { x: 84, y: 65 }, '38': { x: 89, y: 65 },
+  '18': { x: 13.7, y: 22.2 }, '17': { x: 18.4, y: 22.2 }, '16': { x: 23.2, y: 22.2 }, '15': { x: 27.9, y: 22.2 },
+  '14': { x: 32.7, y: 22.2 }, '13': { x: 37.5, y: 22.2 }, '12': { x: 42.2, y: 22.2 }, '11': { x: 47.0, y: 22.2 },
+  '21': { x: 51.7, y: 22.2 }, '22': { x: 56.5, y: 22.2 }, '23': { x: 61.3, y: 22.2 }, '24': { x: 66.1, y: 22.2 },
+  '25': { x: 70.9, y: 22.2 }, '26': { x: 75.7, y: 22.2 }, '27': { x: 80.5, y: 22.2 }, '28': { x: 85.3, y: 22.2 },
+  '48': { x: 13.7, y: 78.6 }, '47': { x: 18.4, y: 78.6 }, '46': { x: 23.2, y: 78.6 }, '45': { x: 27.9, y: 78.6 },
+  '44': { x: 32.7, y: 78.6 }, '43': { x: 37.5, y: 78.6 }, '42': { x: 42.2, y: 78.6 }, '41': { x: 47.0, y: 78.6 },
+  '31': { x: 51.7, y: 78.6 }, '32': { x: 56.5, y: 78.6 }, '33': { x: 61.3, y: 78.6 }, '34': { x: 66.1, y: 78.6 },
+  '35': { x: 70.9, y: 78.6 }, '36': { x: 75.7, y: 78.6 }, '37': { x: 80.5, y: 78.6 }, '38': { x: 85.3, y: 78.6 },
 }
 
 type Snapshot = Record<string, Code>
@@ -162,11 +163,11 @@ export default function OdontogramaDxOverlay({ patientId }: { patientId: string 
       setLoading(true)
       const { data } = await supabase
         .from('odontograms')
-        .select('state')
+        .select('snapshot')
         .eq('patient_id', patientId)
         .order('created_at', { ascending: false })
         .limit(1)
-      if (data && data[0]?.state) setMap(data[0].state as Snapshot)
+      if (data && data[0]?.snapshot) setMap(data[0].snapshot as Snapshot)
       setLoading(false)
     })()
   }, [patientId])
@@ -187,8 +188,8 @@ export default function OdontogramaDxOverlay({ patientId }: { patientId: string 
     try {
       const { error } = await supabase.from('odontograms').insert({
         patient_id: patientId,
-        state: map,
-        // note: omitido — Supabase schema cache puede no tener la columna aún
+        kind: 'initial',
+        snapshot: map,
       })
       if (error) throw error
       setSaved(true)
@@ -204,11 +205,11 @@ export default function OdontogramaDxOverlay({ patientId }: { patientId: string 
     setLoading(true)
     const { data } = await supabase
       .from('odontograms')
-      .select('state')
+      .select('snapshot')
       .eq('patient_id', patientId)
       .order('created_at', { ascending: false })
       .limit(1)
-    if (data && data[0]?.state) setMap(data[0].state as Snapshot)
+    if (data && data[0]?.snapshot) setMap(data[0].snapshot as Snapshot)
     setLoading(false)
   }
 
