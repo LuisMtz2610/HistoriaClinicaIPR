@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { publicUrlFor } from '@/lib/odontogram';
 import BackButton from '@/components/BackButton';
 
-type Row = { id: string; created_at: string; image_path: string | null; note: string | null; svg: string | null; state: any; };
+type Row = { id: string; created_at: string; image_path: string | null; notes: string | null; snapshot: any; };
 
 export default function Page({ params }: { params: { id: string, ogid: string } }) {
   const patientId = params.id;
@@ -19,7 +19,7 @@ export default function Page({ params }: { params: { id: string, ogid: string } 
       setLoading(true);
       const { data, error } = await supabase
         .from('odontograms')
-        .select('id, created_at, image_path, note, svg, state')
+        .select('id, created_at, image_path, notes, snapshot')
         .eq('id', ogid)
         .maybeSingle();
       if (!error) setRow(data as any);
@@ -43,23 +43,13 @@ export default function Page({ params }: { params: { id: string, ogid: string } 
         <div className="space-y-4">
           <div className="card p-4 space-y-2">
             <div className="text-sm text-neutral-600">{fmt.format(new Date(row.created_at))}</div>
-            {row.note ? <div><b>Nota:</b> {row.note}</div> : null}
+            {row.notes ? <div><b>Nota:</b> {row.notes}</div> : null}
             <Preview path={row.image_path} />
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="card p-4">
-              <div className="font-semibold mb-2">SVG</div>
-              {row.svg ? (
-                <div className="border rounded bg-white overflow-auto p-2" dangerouslySetInnerHTML={{ __html: row.svg }} />
-              ) : (
-                <div className="text-sm text-neutral-500">Sin SVG guardado.</div>
-              )}
-            </div>
-            <div className="card p-4">
-              <div className="font-semibold mb-2">Estado (JSON)</div>
-              <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(row.state, null, 2)}</pre>
-            </div>
+          <div className="card p-4">
+            <div className="font-semibold mb-2">Estado (JSON)</div>
+            <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(row.snapshot, null, 2)}</pre>
           </div>
         </div>
       )}

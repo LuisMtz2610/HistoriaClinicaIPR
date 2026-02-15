@@ -31,15 +31,16 @@ export async function svgToWebP(svgString: string, width = 1400, height = 900): 
 
 export async function saveOdontogramVersion(opts: {
   patientId: string;
-  state: any;
-  svg?: string | null;
-  note?: string | null;
+  snapshot: any;          // jsonb — estado del odontograma
+  kind?: string;          // odontogram_kind: 'initial' | 'followup' | 'final'
+  svg?: string | null;    // opcional, sólo para generar la imagen
+  notes?: string | null;
   makeSnapshot?: boolean;
   snapshotSize?: { width: number; height: number };
   storageBucket?: string;
 }) {
   const {
-    patientId, state, svg = null, note = null,
+    patientId, snapshot, kind = 'initial', svg = null, notes = null,
     makeSnapshot = (svg ? true : false),
     snapshotSize = { width: 1400, height: 900 },
     storageBucket = 'odontograms',
@@ -58,7 +59,7 @@ export async function saveOdontogramVersion(opts: {
   }
 
   const { data, error } = await supabase.from('odontograms')
-    .insert({ patient_id: patientId, state, svg, image_path, note })
+    .insert({ patient_id: patientId, kind, snapshot, image_path, notes })
     .select('id')
     .single();
   if (error) throw error;

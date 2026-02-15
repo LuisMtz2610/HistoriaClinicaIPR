@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { saveOdontogramVersion, publicUrlFor } from '@/lib/odontogram';
 import BackButton from '@/components/BackButton';
 
-type Row = { id: string; created_at: string; image_path: string | null; note: string | null; };
+type Row = { id: string; created_at: string; image_path: string | null; notes: string | null; };
 
 export default function Page({ params }: { params: { id: string } }) {
   const patientId = params.id;
@@ -25,7 +25,7 @@ export default function Page({ params }: { params: { id: string } }) {
       setLoading(true);
       const { data, error } = await supabase
         .from('odontograms')
-        .select('id, created_at, image_path, note')
+        .select('id, created_at, image_path, notes')
         .eq('patient_id', patientId)
         .order('created_at', { ascending: false });
       if (!error) setRows((data ?? []) as any);
@@ -39,11 +39,11 @@ export default function Page({ params }: { params: { id: string } }) {
     e.preventDefault();
     setSaving(true);
     try {
-      const state = JSON.parse(stateText || '{}');
-      await saveOdontogramVersion({ patientId, state, svg: svgText, note });
+      const snapshot = JSON.parse(stateText || '{}');
+      await saveOdontogramVersion({ patientId, snapshot, kind: 'initial', svg: svgText, notes: note });
       const { data } = await supabase
         .from('odontograms')
-        .select('id, created_at, image_path, note')
+        .select('id, created_at, image_path, notes')
         .eq('patient_id', patientId)
         .order('created_at', { ascending: false });
       setRows((data ?? []) as any);
@@ -106,7 +106,7 @@ export default function Page({ params }: { params: { id: string } }) {
               <Thumb path={r.image_path} />
               <div className="p-3 space-y-1 text-sm">
                 <div className="font-medium">{fmt.format(new Date(r.created_at))}</div>
-                {r.note ? <div className="text-neutral-600">{r.note}</div> : null}
+                {r.notes ? <div className="text-neutral-600">{r.notes}</div> : null}
                 <div className="flex items-center gap-2 pt-1">
                   <Link href={`/patients/${patientId}/odontogramas/${r.id}`} className="text-blue-600 mr-3">Ver</Link>
                   <button className="text-emerald-700 underline" onClick={()=>toggleSelected(r.id)}>

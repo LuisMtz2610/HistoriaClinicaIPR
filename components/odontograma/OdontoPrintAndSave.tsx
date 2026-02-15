@@ -147,9 +147,10 @@ export default function OdontoPrintAndSave({
         .from('odontograms')
         .insert({
           patient_id: patientId,
+          kind: 'initial',
+          snapshot: {},
           image_path: storagePath,
-          state: {},
-          note: 'Versión creada desde Historia → Imprimir',
+          notes: 'Versión creada desde Historia → Imprimir',
         })
         .select('id')
         .single();
