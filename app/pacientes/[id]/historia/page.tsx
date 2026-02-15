@@ -6,8 +6,7 @@ import { useParams } from 'next/navigation'
 import useSWR from 'swr'
 import { supabase } from '@/lib/supabase'
 import F1Form from '@/components/forms/F1Form'
-import OdontogramaDxSelects from '@/components/OdontogramaDxSelects'
-import OdontogramaImagen from '@/components/OdontogramaImagen'
+import OdontogramaDxOverlay from '@/components/OdontogramaDxOverlay'
 
 /* ------------------------- Data loaders (SWR) ------------------------- */
 
@@ -115,9 +114,9 @@ export default function HistoriaClinicaPage() {
         <F1Form patient={patient} />
       </div>
 
-      {/* Odontograma: IMAGEN + SELECTS + botón imprimir */}
+      {/* Odontograma interactivo con overlay */}
       <div className="card p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-3">
           <div className="font-semibold">Odontograma diagnóstico</div>
           <Link
             href={`/pacientes/${patient.id}/historia/odontograma/print`}
@@ -125,19 +124,10 @@ export default function HistoriaClinicaPage() {
             className="btn"
             title="Abrir vista de impresión en nueva pestaña"
           >
-            Imprimir odontograma
+            Imprimir
           </Link>
         </div>
-
-        {/* 👉 Lámina desde /public */}
-        <div className="mt-3">
-          <OdontogramaImagen />
-        </div>
-
-        {/* 👉 Selects por pieza (guarda/carga snapshot) */}
-        <div className="mt-4">
-          <OdontogramaDxSelects patientId={patient.id} />
-        </div>
+        <OdontogramaDxOverlay patientId={patient.id} />
       </div>
 
       {/* Observaciones por visita (guardable) */}
