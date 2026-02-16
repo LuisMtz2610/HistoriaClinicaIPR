@@ -66,7 +66,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen" style={{ background: 'var(--bg, #F7F8FA)' }}>
 
       {/* ══ SIDEBAR — desktop (lg+) ══════════════════════════ */}
-      <aside className="hidden lg:flex flex-col w-60 xl:w-64 shrink-0 fixed top-0 left-0 h-screen z-30"
+      <aside data-sidebar="" className="hidden lg:flex flex-col w-60 xl:w-64 shrink-0 fixed top-0 left-0 h-screen z-30"
         style={{ background: '#111827' }}>
         <SidebarContent pathname={pathname} />
       </aside>
@@ -80,7 +80,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       {/* ══ DRAWER MÓVIL ═════════════════════════════════════ */}
-      <div className={[
+      <div data-sidebar="" className={[
         'fixed top-0 left-0 h-full w-64 z-50 flex flex-col transition-transform duration-300 ease-in-out lg:hidden',
         drawerOpen ? 'translate-x-0' : '-translate-x-full',
       ].join(' ')} style={{ background: '#111827' }}>
@@ -91,7 +91,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex-1 flex flex-col min-h-screen lg:pl-60 xl:pl-64">
 
         {/* Topbar */}
-        <header className="sticky top-0 z-20 h-14 flex items-center gap-3 px-4 border-b border-gray-200/80"
+        <header data-topbar="" className="sticky top-0 z-20 h-14 flex items-center gap-3 px-4 border-b border-gray-200/80"
           style={{ background: 'rgba(247,248,250,0.92)', backdropFilter: 'blur(12px)' }}>
 
           {/* Hamburguesa */}
@@ -107,10 +107,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
           {/* Logo móvil */}
           <div className="lg:hidden flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg overflow-hidden bg-brand flex items-center justify-center">
-              <LogoFallback size={18} />
+            <div className="w-7 h-7 rounded-lg overflow-hidden bg-white flex items-center justify-center p-0.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-clinica.png" alt="Logo" width={26} height={26} className="object-contain" />
             </div>
-            <span className="text-sm font-semibold text-gray-800">Clínica</span>
+            <div>
+              <div className="text-xs font-bold text-gray-800 leading-tight">Clínica Odontológica</div>
+              <div className="text-[10px] text-brand leading-tight font-semibold">Integral</div>
+            </div>
           </div>
 
           {/* Breadcrumb de página activa */}
@@ -160,13 +164,14 @@ function SidebarContent({ pathname, onClose }: { pathname: string; onClose?: () 
       {/* Logo / Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b shrink-0" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
         <Link href="/" className="flex items-center gap-3 min-w-0" onClick={onClose}>
-          <div className="w-8 h-8 rounded-xl overflow-hidden shrink-0 flex items-center justify-center"
-            style={{ background: 'rgba(43,156,147,0.25)', border: '1px solid rgba(43,156,147,0.4)' }}>
-            <LogoFallback size={20} />
+          <div className="w-9 h-9 rounded-xl overflow-hidden shrink-0 bg-white flex items-center justify-center p-0.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-clinica.png" alt="Logo" width={34} height={34} className="object-contain" />
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-bold text-white leading-tight truncate">Clínica Dental</div>
-            <div className="text-[10px] leading-tight" style={{ color: 'rgba(255,255,255,0.4)' }}>Sistema de gestión</div>
+            <div className="text-xs font-bold text-white leading-tight">CLÍNICA ODONTOLÓGICA</div>
+            <div className="text-xs font-bold leading-tight" style={{ color: '#2B9C93' }}>INTEGRAL</div>
+            <div className="text-[9px] leading-tight mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Dra. Isabel Paván Romero</div>
           </div>
         </Link>
         {onClose && (

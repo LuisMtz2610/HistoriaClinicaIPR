@@ -157,7 +157,13 @@ export default async function PrintQuote({ params }: { params: { id: string } })
         </div>
 
         <div className="no-print mt-3">
-          <PrintActions quoteId={quote.id} />
+          <PrintActions
+            quoteId={quote.id}
+            folio={(quote as any).folio_code || quote.id}
+            patientName={patient ? `${patient.first_name} ${patient.last_name}` : 'Paciente'}
+            patientPhone={patient?.phone ?? ''}
+            total={`$${total.toFixed(2)} MXN`}
+          />
         </div>
       </div>
 

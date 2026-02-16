@@ -7,9 +7,25 @@ export default function PrintFrame({ children }: { children: React.ReactNode }) 
       <style jsx global>{`
         @media print {
           @page { margin: 12mm; }
-          header, nav, footer.app { display: none !important; }
+          /* Ocultar todo el shell — sidebar + topbar */
+          header,
+          nav,
+          aside,
+          footer.app,
+          [data-sidebar],
+          [data-topbar] {
+            display: none !important;
+          }
+          /* Quitar el padding-left que deja el sidebar */
+          .lg\\:pl-60,
+          .xl\\:pl-64,
+          [class*="pl-60"],
+          [class*="pl-64"] {
+            padding-left: 0 !important;
+          }
           html, body { background: #fff !important; }
         }
+        /* En pantalla también ocultar chrome cuando se abre /print */
       `}</style>
       {children}
     </div>
