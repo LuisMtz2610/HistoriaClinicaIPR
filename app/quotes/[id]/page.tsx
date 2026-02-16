@@ -274,6 +274,18 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
     alert('No se pudo aprobar — revisa el enum quote_status en Supabase:\nselect unnest(enum_range(NULL::quote_status));')
   }
 
+  async function deleteQuote() {
+    if (!q) return
+    const folio = q.folio_code || q.id.slice(0, 8)
+    if (!confirm(`¿Eliminar el presupuesto ${folio}?\n\nSe eliminarán también sus partidas y pagos. Esta acción no se puede deshacer.`)) return
+    // Eliminar partidas y pagos primero (FK constraints)
+    await supabase.from('quote_items').delete().eq('quote_id', q.id)
+    await supabase.from('quote_payments').delete().eq('quote_id', q.id)
+    const { error } = await supabase.from('quotes').delete().eq('id', q.id)
+    if (error) { alert('Error al eliminar: ' + error.message); return }
+    window.location.href = '/quotes'
+  }
+
   /* ── PAGO ────────────────────────────────────────────────── */
   async function addPayment(e: React.FormEvent) {
     e.preventDefault()
@@ -358,6 +370,11 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
                 ✓ Aprobado
               </div>
             )}
+            <button onClick={deleteQuote}
+              className="px-3 py-2 rounded-xl text-sm font-medium border border-rose-200 text-rose-500 hover:bg-rose-50 transition"
+              title="Eliminar presupuesto">
+              🗑️ Eliminar
+            </button>
           </div>
         </div>
 
@@ -510,7 +527,6 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
                 {addingItem ? 'Agregando…' : '+ Agregar servicio'}
               </button>
             </form>
-          </div>
           </div>
 
           {/* Lista de partidas */}

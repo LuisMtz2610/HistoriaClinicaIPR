@@ -70,6 +70,13 @@ export default function QuotesPage() {
     alert('No se pudo aprobar — revisa el enum quote_status en Supabase')
   }
 
+  async function deleteQuote(id: string, folio: string | null) {
+    if (!confirm(`¿Eliminar el presupuesto ${folio ?? id.slice(0, 8)}?\n\nEsta acción no se puede deshacer.`)) return
+    const { error } = await supabase.from('quotes').delete().eq('id', id)
+    if (error) { alert('Error al eliminar: ' + error.message); return }
+    load()
+  }
+
   // Métricas globales
   const allRows   = groups.flatMap(g => g.rows)
   const totalAll  = allRows.reduce((a, r) => a + r.total, 0)
@@ -219,6 +226,11 @@ export default function QuotesPage() {
                           ✓ Aprobar
                         </button>
                       )}
+                      <button onClick={() => deleteQuote(r.id, r.folio ?? null)}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-500 hover:bg-rose-50 border border-rose-200 transition"
+                        title="Eliminar presupuesto">
+                        🗑️
+                      </button>
                     </div>
                   </div>
                 )
