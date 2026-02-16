@@ -422,7 +422,8 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
               <span className="w-6 h-6 rounded-full bg-brand text-white text-xs flex items-center justify-center">+</span>
               Agregar servicio
             </div>
-            <form onSubmit={addItem} className="space-y-3" ref={suggestRef}>
+            <div ref={suggestRef}>
+            <form onSubmit={addItem} className="space-y-3">
               {/* Autocomplete */}
               <div className="relative">
                 <label className="text-xs font-medium text-gray-500 mb-1 block">Servicio / concepto</label>
