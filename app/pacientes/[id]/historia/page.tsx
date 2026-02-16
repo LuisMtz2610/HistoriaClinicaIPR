@@ -414,12 +414,17 @@ function TreatmentPlanSection({
   const [msg,     setMsg]     = React.useState<string | null>(null)
   const [filter,  setFilter]  = React.useState<string>('todos')
 
-  const emptyForm = {
+  type FormState = {
+    tooth: string; diagnosis: string; treatment: string
+    priority: TreatmentRow['priority']; status: TreatmentRow['status']
+    session_date: string; notes: string; price_est: string
+  }
+  const emptyForm: FormState = {
     tooth: '', diagnosis: '', treatment: '',
-    priority: 'normal' as const, status: 'pendiente' as const,
+    priority: 'normal', status: 'pendiente',
     session_date: '', notes: '', price_est: '',
   }
-  const [form, setForm] = React.useState({ ...emptyForm })
+  const [form, setForm] = React.useState<FormState>({ ...emptyForm })
 
   const rows = plansData.data ?? []
   const filtered = filter === 'todos' ? rows : rows.filter(r => r.status === filter)
@@ -481,7 +486,7 @@ function TreatmentPlanSection({
     plansData.mutate()
   }
 
-  const f = (k: keyof typeof form, v: string) => setForm(prev => ({ ...prev, [k]: v }))
+  const f = (k: keyof FormState, v: FormState[keyof FormState]) => setForm(prev => ({ ...prev, [k]: v }))
 
   return (
     <div className="space-y-4">
@@ -676,7 +681,7 @@ function TreatmentPlanSection({
                   <div className="flex items-center gap-2 shrink-0">
                     <select
                       value={r.status}
-                      onChange={e => updateStatus(r.id, e.target.value as any)}
+                      onChange={e => updateStatus(r.id, e.target.value as TreatmentRow['status'])}
                       className={`text-xs rounded-lg px-2 py-1.5 border font-semibold cursor-pointer ${sm.cls}`}
                     >
                       <option value="pendiente">Pendiente</option>
