@@ -511,6 +511,7 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
               </button>
             </form>
           </div>
+          </div>
 
           {/* Lista de partidas */}
           <div className="card overflow-hidden">
