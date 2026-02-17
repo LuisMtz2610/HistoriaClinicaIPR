@@ -527,6 +527,7 @@ export default function QuoteDetail({ params }: { params: { id: string } }) {
                 {addingItem ? 'Agregando…' : '+ Agregar servicio'}
               </button>
             </form>
+            </div>
           </div>
 
           {/* Lista de partidas */}
