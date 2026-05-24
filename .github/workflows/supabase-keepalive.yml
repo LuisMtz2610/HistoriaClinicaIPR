@@ -1,0 +1,26 @@
+name: Keep Supabase Awake
+
+on:
+  schedule:
+    - cron: "0 14 */3 * *" # Cada 3 días aprox. 08:00 America/Mexico_City
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: Ping Supabase healthcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Call Supabase REST healthcheck
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_ANON_KEY"
+
+          curl --fail --silent --show-error \
+            "${SUPABASE_URL}/rest/v1/healthcheck?id=eq.1&select=id" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}"
